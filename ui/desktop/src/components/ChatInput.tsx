@@ -24,6 +24,7 @@ import MentionPopover, { DisplayItemWithMatch } from './MentionPopover';
 import { COST_TRACKING_ENABLED } from '../updates';
 import { CostTracker } from './bottom_menu/CostTracker';
 import { ContextWindowIndicator } from './bottom_menu/ContextWindowIndicator';
+import { TbToolshimToggle } from '../tb/TbToolshimToggle';
 import { DroppedFile, useFileDrop } from '../hooks/useFileDrop';
 import { Recipe } from '../recipe';
 import { MessageQueue, QueuedMessage } from './MessageQueue';
@@ -1747,6 +1748,9 @@ export default function ChatInput({
               tokenLimit={tokenLimit}
               alerts={alerts}
             />
+
+            {/* TB-Software: Toolshim-Umschalter (Text-Tool-Parsing für Modelle ohne native tool_calls) */}
+            <TbToolshimToggle />
 
             {/* Right: extension selector */}
             <BottomMenuExtensionSelection

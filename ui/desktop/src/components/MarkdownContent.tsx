@@ -155,6 +155,7 @@ const MarkdownCode = memo(
     { inline, className, children, ...props }: CodeProps,
     ref: React.Ref<HTMLElement>
   ) {
+    const preview = usePreview();
     const match = /language-(\w+)/.exec(className || '');
     const codeContent = String(children ?? '');
 
@@ -163,9 +164,39 @@ const MarkdownCode = memo(
     // a trailing newline, which inline code spans can never contain.
     const isBlockLevelCode = !inline && codeContent.endsWith('\n');
 
-    return isBlockLevelCode ? (
-      <CodeBlock language={match ? match[1] : 'text'}>{codeContent.replace(/\n$/, '')}</CodeBlock>
-    ) : (
+    if (isBlockLevelCode) {
+      return (
+        <CodeBlock language={match ? match[1] : 'text'}>{codeContent.replace(/\n$/, '')}</CodeBlock>
+      );
+    }
+
+    // TB-Software: Inline-Code, das ein lokaler Datei-Pfad ist -> klickbar
+    // (vorschaubar -> Panel; sonst Explorer). Deckt Pfade in Backticks ab.
+    const inlinePath = toLocalFsPath(codeContent.trim());
+    if (inlinePath) {
+      const kind = previewKindFor(inlinePath);
+      return (
+        <code
+          ref={ref}
+          {...props}
+          className="break-all bg-inline-code whitespace-pre-wrap font-mono underline decoration-dotted cursor-pointer"
+          title={kind !== 'unknown' ? 'Klick für Vorschau (rechts)' : 'Im Explorer anzeigen'}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (preview && kind !== 'unknown') {
+              preview.open(inlinePath);
+            } else {
+              void window.electron.showItemInFolder(inlinePath);
+            }
+          }}
+        >
+          {children}
+        </code>
+      );
+    }
+
+    return (
       <code ref={ref} {...props} className="break-all bg-inline-code whitespace-pre-wrap font-mono">
         {children}
       </code>
@@ -176,7 +207,22 @@ const MarkdownCode = memo(
 // Custom URL transform to preserve deep link URLs (spotify:, vscode:, slack:, etc.)
 // React-markdown's default only allows http/https/mailto and strips all other protocols
 // We allow all protocols except dangerous ones (javascript:, data:, file:, etc.)
-const customUrlTransform = (url: string): string => {
+export const customUrlTransform = (url: string): string => {
+  // TB-Software: Bare lokale Dateipfade (C:\..., C:/..., \\server\...) werden vom
+  // WHATWG-URL-Parser zu protocol "file:" normalisiert und würden hier von der
+  // BLOCKED_PROTOCOLS-Sperre auf "" gesetzt (href leer -> Klick tot -> Vorschau-Panel
+  // öffnet nie). Zusätzlich prozent-kodiert react-markdown die Backslashes (C:%5C...),
+  // daher erst dekodieren. Diese Pfade linkifizieren wir selbst (remarkLocalPaths) und
+  // behandeln den Klick (preview/explorer) mit preventDefault, ohne je zu navigieren.
+  let decoded = url;
+  try {
+    decoded = decodeURIComponent(url);
+  } catch {
+    // ungültige %-Sequenz -> Originalwert behalten
+  }
+  if (toLocalFsPath(decoded)) {
+    return decoded;
+  }
   try {
     const protocol = new URL(url).protocol;
     if (BLOCKED_PROTOCOLS.includes(protocol)) {
@@ -288,6 +334,37 @@ const MarkdownContent = memo(function MarkdownContent({
                     void handleOpenExternal(props.href);
                   }
                 }}
+              />
+            );
+          },
+          img: (props) => {
+            // TB-Software: Höhe im Chat begrenzen; Klick -> grosse Ansicht rechts.
+            // Quelle: lokaler Pfad ODER data:-URL (base64).
+            const imgSrc = props.src ?? '';
+            const localPath = toLocalFsPath(imgSrc);
+            const isDataUrl = /^data:(image|video)\//i.test(imgSrc);
+            const clickable = !!(preview && (localPath || isDataUrl));
+            return (
+              <img
+                {...props}
+                className={`${props.className ?? ''} max-h-64 rounded ${clickable ? 'cursor-pointer' : ''}`.trim()}
+                title={clickable ? 'Klick für grosse Ansicht (rechts)' : props.title}
+                onClick={
+                  clickable
+                    ? (e) => {
+                        e.preventDefault();
+                        if (isDataUrl) {
+                          preview!.openInline({
+                            name: 'Bild',
+                            dataUrl: imgSrc,
+                            kind: imgSrc.startsWith('data:video') ? 'video' : 'image',
+                          });
+                        } else {
+                          preview!.open(localPath!);
+                        }
+                      }
+                    : undefined
+                }
               />
             );
           },

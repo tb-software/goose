@@ -206,8 +206,10 @@ export const PreviewPanel: React.FC = () => {
     }
   }, [width]);
 
-  if (!preview || !preview.path) return null;
+  if (!preview || (!preview.path && !preview.inline)) return null;
   const path = preview.path;
+  const inline = preview.inline;
+  const title = inline ? inline.name : path ? baseName(path) : '';
 
   return (
     <div
@@ -223,17 +225,19 @@ export const PreviewPanel: React.FC = () => {
         <div className="h-[48px] flex items-center gap-2 px-3 border-b border-border-primary no-drag">
           <span
             className="flex-1 truncate text-sm font-medium text-text-primary"
-            title={path}
+            title={path ?? title}
           >
-            {baseName(path)}
+            {title}
           </span>
-          <button
-            className="p-1.5 rounded hover:bg-background-tertiary text-text-secondary"
-            title="Im Explorer anzeigen"
-            onClick={() => void window.electron.showItemInFolder(path)}
-          >
-            <FolderOpen className="w-4 h-4" />
-          </button>
+          {path && (
+            <button
+              className="p-1.5 rounded hover:bg-background-tertiary text-text-secondary"
+              title="Im Explorer anzeigen"
+              onClick={() => void window.electron.showItemInFolder(path)}
+            >
+              <FolderOpen className="w-4 h-4" />
+            </button>
+          )}
           <button
             className="p-1.5 rounded hover:bg-background-tertiary text-text-secondary"
             title="Schließen"
@@ -242,7 +246,21 @@ export const PreviewPanel: React.FC = () => {
             <X className="w-4 h-4" />
           </button>
         </div>
-        <PreviewBody key={path} path={path} />
+        {inline ? (
+          <div className="flex-1 overflow-auto p-4 flex items-center justify-center">
+            {inline.kind === 'video' ? (
+              <video src={inline.dataUrl} controls className="max-w-full max-h-full" />
+            ) : (
+              <img
+                src={inline.dataUrl}
+                alt={inline.name}
+                className="max-w-full max-h-full object-contain"
+              />
+            )}
+          </div>
+        ) : (
+          <PreviewBody key={path!} path={path!} />
+        )}
       </div>
     </div>
   );

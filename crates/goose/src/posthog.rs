@@ -13,8 +13,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use uuid::Uuid;
 
-const POSTHOG_API_KEY: &str = "phc_RyX5CaY01VtZJCQyhSR5KFh6qimUy81YwxsEpotAftT";
-const POSTHOG_CAPTURE_URL: &str = "https://us.i.posthog.com/capture/";
+// TB-Software: Telemetrie an EIGENES EU-PostHog (statt Block/Goose us.i.posthog.com).
+const POSTHOG_API_KEY: &str = "phc_nyAiM23QcWw3KFppagpUkP5XobUGVDoz9qL3a7N6cMJP";
+const POSTHOG_CAPTURE_URL: &str = "https://eu.i.posthog.com/capture/";
 
 /// Config key for telemetry opt-out preference
 pub const TELEMETRY_ENABLED_KEY: &str = "GOOSE_TELEMETRY_ENABLED";
