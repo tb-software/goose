@@ -117,6 +117,9 @@ export interface AcpChatSessionActions {
 
 interface AcpChatSessionStoreInternal extends AcpChatSessionStore, AcpChatSessionActions {
   subscribe(sessionId: string, listener: (snapshot: AcpChatSessionSnapshot) => void): () => void;
+  // TB-Software: read-only Momentaufnahme aller bekannten Chats (fuer die Fenster-
+  // Titelleiste: Anzahl "wartender"/arbeitender Chats).
+  tbListChats(): { sessionId: string; chatState: ChatState; hasSession: boolean }[];
 }
 
 function createAcpChatSessionStoreInternal(): AcpChatSessionStoreInternal {
@@ -449,6 +452,14 @@ function createAcpChatSessionStoreInternal(): AcpChatSessionStoreInternal {
     promptAttemptId
   ) => sessionsById.get(sessionId)?.activePromptAttemptId === promptAttemptId;
 
+  const tbListChats: AcpChatSessionStoreInternal['tbListChats'] = () => {
+    const out: { sessionId: string; chatState: ChatState; hasSession: boolean }[] = [];
+    for (const [sessionId, entry] of sessionsById) {
+      out.push({ sessionId, chatState: entry.chatState, hasSession: entry.session != null });
+    }
+    return out;
+  };
+
   const applyAcpSessionNotification: AcpChatSessionActions['applyAcpSessionNotification'] = (
     notification
   ) => {
@@ -570,10 +581,20 @@ function createAcpChatSessionStoreInternal(): AcpChatSessionStoreInternal {
     cancelPermissionRequest,
     applyElicitationRequest,
     setElicitationStatus,
+    tbListChats,
   };
 }
 
 const acpChatSessionStoreInternal = createAcpChatSessionStoreInternal();
+
+// TB-Software: Momentaufnahme aller bekannten Chats fuer die Fenster-Titelleiste.
+export function tbListChats(): {
+  sessionId: string;
+  chatState: ChatState;
+  hasSession: boolean;
+}[] {
+  return acpChatSessionStoreInternal.tbListChats();
+}
 
 export const acpChatSessionStore: AcpChatSessionStore = storeFromInternal(
   acpChatSessionStoreInternal

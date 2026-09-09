@@ -34,6 +34,8 @@ import { substituteParameters } from '../utils/parameterSubstitution';
 import { useAutoSubmit } from '../hooks/useAutoSubmit';
 import EnvironmentBadge from './GooseSidebar/EnvironmentBadge';
 import { TbMetricsBar } from '../tb/TbMetricsBar';
+import { WorkingDirProvider } from '../tb/WorkingDirContext';
+import { useTbWindowTitle } from '../tb/useTbWindowTitle';
 import SessionActionsHeader from './SessionActionsHeader';
 import { isAcpRecovering, subscribeToAcpRecovery } from '../acp/acpConnection';
 
@@ -128,6 +130,9 @@ export default function BaseChat({
     (text: string) => handleSubmit({ msg: text, images: [] }),
     [handleSubmit]
   );
+
+  // TB-Software: Fenstertitel = "TB-Goose — <Chat-Titel> · <Status>[ · n wartend]".
+  useTbWindowTitle(session?.name, chatState, sessionId);
 
   const handleWorkingDirChange = useCallback(
     async (newDir: string) => {
@@ -413,6 +418,7 @@ export default function BaseChat({
   }
 
   return (
+    <WorkingDirProvider value={session?.working_dir}>
     <div className="h-full flex flex-col min-h-0">
       <MainPanelLayout
         backgroundColor={'bg-background-primary'}
@@ -564,5 +570,6 @@ export default function BaseChat({
         />
       )}
     </div>
+    </WorkingDirProvider>
   );
 }

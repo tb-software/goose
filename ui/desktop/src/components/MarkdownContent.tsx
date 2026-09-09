@@ -8,6 +8,8 @@ import 'katex/dist/katex.min.css';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { toLocalFsPath } from '../tb/localPath';
+import { resolveChatPath } from '../tb/resolveChatPath';
+import { useWorkingDir } from '../tb/WorkingDirContext';
 import { remarkLocalPaths } from '../tb/remarkLocalPaths';
 import { usePreview } from '../tb/preview/PreviewContext';
 import { previewKindFor } from '../tb/preview/previewKind';
@@ -156,6 +158,7 @@ const MarkdownCode = memo(
     ref: React.Ref<HTMLElement>
   ) {
     const preview = usePreview();
+    const workingDir = useWorkingDir();
     const match = /language-(\w+)/.exec(className || '');
     const codeContent = String(children ?? '');
 
@@ -171,8 +174,9 @@ const MarkdownCode = memo(
     }
 
     // TB-Software: Inline-Code, das ein lokaler Datei-Pfad ist -> klickbar
-    // (vorschaubar -> Panel; sonst Explorer). Deckt Pfade in Backticks ab.
-    const inlinePath = toLocalFsPath(codeContent.trim());
+    // (vorschaubar -> Panel; sonst Explorer). Deckt absolute Pfade UND bloße
+    // Dateinamen/relative Pfade ab (letztere gegen das Arbeitsverzeichnis aufgeloest).
+    const inlinePath = resolveChatPath(codeContent, workingDir);
     if (inlinePath) {
       const kind = previewKindFor(inlinePath);
       return (
@@ -240,6 +244,7 @@ const MarkdownContent = memo(function MarkdownContent({
 }: MarkdownContentProps) {
   const intl = useIntl();
   const preview = usePreview();
+  const workingDir = useWorkingDir();
   const processedContent = useMemo(() => {
     try {
       return wrapHTMLInCodeBlock(content);
@@ -305,8 +310,9 @@ const MarkdownContent = memo(function MarkdownContent({
         ]}
         components={{
           a: (props) => {
-            // TB-Software: lokale Dateipfade -> im Explorer markieren statt Browser.
-            const localPath = props.href ? toLocalFsPath(props.href) : null;
+            // TB-Software: lokale Dateipfade -> Vorschau/Explorer statt Browser.
+            // Auch relative Pfade / bloße Dateinamen (gegen Arbeitsverzeichnis aufgeloest).
+            const localPath = props.href ? resolveChatPath(props.href, workingDir) : null;
             return (
               <a
                 {...props}
@@ -341,7 +347,7 @@ const MarkdownContent = memo(function MarkdownContent({
             // TB-Software: Höhe im Chat begrenzen; Klick -> grosse Ansicht rechts.
             // Quelle: lokaler Pfad ODER data:-URL (base64).
             const imgSrc = props.src ?? '';
-            const localPath = toLocalFsPath(imgSrc);
+            const localPath = resolveChatPath(imgSrc, workingDir);
             const isDataUrl = /^data:(image|video)\//i.test(imgSrc);
             const clickable = !!(preview && (localPath || isDataUrl));
             return (
