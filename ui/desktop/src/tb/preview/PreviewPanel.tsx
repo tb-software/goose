@@ -1,7 +1,7 @@
 // TB-Software: Layout- + Render-Zuständigkeit des Vorschau-Panels (SRP).
 // Datenzugriff läuft über window.electron.tbReadFile (kein direkter FS-Zugriff hier).
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { X, FolderOpen, FileWarning } from 'lucide-react';
+import { X, FolderOpen, FileWarning, RefreshCw } from 'lucide-react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import MarkdownContent from '../../components/MarkdownContent';
@@ -45,15 +45,23 @@ const Centered: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   </div>
 );
 
-const PreviewBody: React.FC<{ path: string }> = ({ path }) => {
+const PreviewBody: React.FC<{ path: string; reloadTick: number }> = ({ path, reloadTick }) => {
   const [res, setRes] = useState<ReadResult | null>(null);
   const [loading, setLoading] = useState(true);
+  // Wird durch den Datei-Watcher (Auto-Refresh) erhöht, getrennt vom manuellen reloadTick.
+  const [autoTick, setAutoTick] = useState(0);
   const kind: PreviewKind = previewKindFor(path);
 
+  // Beim Wechsel des Pfades: Ladehinweis zeigen + alten Inhalt verwerfen.
   useEffect(() => {
-    let alive = true;
     setLoading(true);
     setRes(null);
+  }, [path]);
+
+  // Lesen: initial + bei jedem Reload (manuell via reloadTick, automatisch via autoTick).
+  // KEIN Blanking hier, damit ein Refresh den Inhalt still ersetzt (kein Flackern).
+  useEffect(() => {
+    let alive = true;
     if (kind === 'unknown') {
       setLoading(false);
       return;
@@ -71,6 +79,24 @@ const PreviewBody: React.FC<{ path: string }> = ({ path }) => {
       });
     return () => {
       alive = false;
+    };
+  }, [path, kind, reloadTick, autoTick]);
+
+  // Auto-Refresh: Datei auf der Platte überwachen; bei Änderung nach kurzem Cooldown
+  // (~1,5 s, coalesct schnelle Writes) neu laden. Gilt für ALLE Vorschau-Formate.
+  useEffect(() => {
+    if (kind === 'unknown') return;
+    void window.electron.tbWatchFile(path);
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const off = window.electron.onTbFileChanged((changed: string) => {
+      if (changed !== path) return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => setAutoTick((t) => t + 1), 1500);
+    });
+    return () => {
+      if (timer) clearTimeout(timer);
+      off();
+      void window.electron.tbUnwatchFile();
     };
   }, [path, kind]);
 
@@ -164,10 +190,18 @@ export const PreviewPanel: React.FC = () => {
   const resizing = useRef(false);
   const startX = useRef(0);
   const startWidth = useRef(0);
+  // Sichtbar im State, damit waehrend des Ziehens ein Overlay gerendert wird: sobald der
+  // Cursor ueber das eingebettete <webview> (oder ein iframe) kommt, verschluckt dieses
+  // die Maus-Events und window.mouseup feuert NIE -> Resize "klebt". Das Overlay liegt
+  // ueber allem und faengt move/up zuverlaessig ab.
+  const [isResizing, setIsResizing] = useState(false);
+  // Manueller Refresh der Datei-Vorschau (Button im Header).
+  const [reloadTick, setReloadTick] = useState(0);
 
   const onResizeDown = useCallback(
     (e: React.MouseEvent) => {
       resizing.current = true;
+      setIsResizing(true);
       startX.current = e.clientX;
       startWidth.current = width;
       e.preventDefault();
@@ -184,11 +218,7 @@ export const PreviewPanel: React.FC = () => {
     const onUp = () => {
       if (!resizing.current) return;
       resizing.current = false;
-      try {
-        localStorage.setItem(WIDTH_KEY, String(startWidth.current));
-      } catch {
-        /* localStorage optional */
-      }
+      setIsResizing(false);
     };
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
@@ -214,10 +244,13 @@ export const PreviewPanel: React.FC = () => {
   const title = browserUrl ? 'Browser' : inline ? inline.name : path ? baseName(path) : '';
 
   return (
-    <div
-      className="h-full flex-shrink-0 border-l border-border-primary flex flex-row bg-background-primary"
-      style={{ width }}
-    >
+    <>
+      {/* Faengt Maus-Events waehrend des Ziehens ab, auch ueber dem <webview>/iframe. */}
+      {isResizing && <div className="fixed inset-0 z-[100]" style={{ cursor: 'col-resize' }} />}
+      <div
+        className="h-full flex-shrink-0 border-l border-border-primary flex flex-row bg-background-primary"
+        style={{ width }}
+      >
       <div
         className="w-1.5 cursor-col-resize hover:bg-border-primary/40 transition-colors flex-shrink-0"
         onMouseDown={onResizeDown}
@@ -231,6 +264,15 @@ export const PreviewPanel: React.FC = () => {
           >
             {title}
           </span>
+          {path && (
+            <button
+              className="p-1.5 rounded hover:bg-background-tertiary text-text-secondary"
+              title="Vorschau neu laden"
+              onClick={() => setReloadTick((t) => t + 1)}
+            >
+              <RefreshCw className="w-4 h-4" />
+            </button>
+          )}
           {path && (
             <button
               className="p-1.5 rounded hover:bg-background-tertiary text-text-secondary"
@@ -263,9 +305,10 @@ export const PreviewPanel: React.FC = () => {
             )}
           </div>
         ) : (
-          <PreviewBody key={path!} path={path!} />
+          <PreviewBody key={path!} path={path!} reloadTick={reloadTick} />
         )}
+        </div>
       </div>
-    </div>
+    </>
   );
 };

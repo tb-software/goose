@@ -3061,6 +3061,43 @@ async function appMain() {
     }
   });
 
+  // TB-Software: Datei fuer das Vorschau-Panel ueberwachen -> bei Aenderung auf der
+  // Platte 'tb-file-changed' senden, damit die Vorschau automatisch neu laedt.
+  // fsSync.watchFile (Polling per Stat) statt watch, weil es atomare Editor-Replaces
+  // (loeschen+neu anlegen) ueberlebt. Immer nur EINE Datei aktiv (die aktuelle Vorschau).
+  let tbPreviewWatchPath: string | null = null;
+  const tbStopWatch = () => {
+    if (tbPreviewWatchPath) {
+      try {
+        fsSync.unwatchFile(tbPreviewWatchPath);
+      } catch {
+        /* ignore */
+      }
+      tbPreviewWatchPath = null;
+    }
+  };
+  ipcMain.handle('tb-watch-file', (event, filePath: string) => {
+    try {
+      tbStopWatch();
+      if (!filePath) return true;
+      tbPreviewWatchPath = filePath;
+      const sender = event.sender;
+      fsSync.watchFile(filePath, { interval: 1000 }, (curr, prev) => {
+        // mtime ODER Groesse geaendert (mtime allein kann bei schnellen Writes gleich sein).
+        if (curr.mtimeMs !== prev.mtimeMs || curr.size !== prev.size) {
+          if (!sender.isDestroyed()) sender.send('tb-file-changed', filePath);
+        }
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  });
+  ipcMain.handle('tb-unwatch-file', () => {
+    tbStopWatch();
+    return true;
+  });
+
   // TB-Software: Datei-NAMEN-Suche über Projekt-Ordner (kein Inhalt; v1).
   ipcMain.handle('tb-search', async (_event, roots: string[], query: string) => {
     const q = (query || '').trim().toLowerCase();

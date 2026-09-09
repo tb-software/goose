@@ -192,6 +192,9 @@ type ElectronAPI = {
     results: Array<{ path: string; name: string; rel: string; root: string }>;
     truncated: boolean;
   }>;
+  tbWatchFile: (path: string) => Promise<boolean>;
+  tbUnwatchFile: () => Promise<boolean>;
+  onTbFileChanged: (cb: (path: string) => void) => () => void;
   launchApp: (app: GooseApp) => Promise<void>;
   refreshApp: (app: GooseApp) => Promise<void>;
   closeApp: (appName: string) => Promise<void>;
@@ -357,6 +360,13 @@ const electronAPI: ElectronAPI = {
   showItemInFolder: (fullPath: string) => ipcRenderer.invoke('show-item-in-folder', fullPath),
   tbReadFile: (path: string) => ipcRenderer.invoke('tb-read-file', path),
   tbSearch: (roots: string[], query: string) => ipcRenderer.invoke('tb-search', roots, query),
+  tbWatchFile: (path: string) => ipcRenderer.invoke('tb-watch-file', path),
+  tbUnwatchFile: () => ipcRenderer.invoke('tb-unwatch-file'),
+  onTbFileChanged: (cb: (path: string) => void) => {
+    const listener = (_e: unknown, p: string) => cb(p);
+    ipcRenderer.on('tb-file-changed', listener);
+    return () => ipcRenderer.removeListener('tb-file-changed', listener);
+  },
   launchApp: (app: GooseApp) => ipcRenderer.invoke('launch-app', app),
   refreshApp: (app: GooseApp) => ipcRenderer.invoke('refresh-app', app),
   closeApp: (appName: string) => ipcRenderer.invoke('close-app', appName),
