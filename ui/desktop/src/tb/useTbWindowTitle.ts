@@ -4,7 +4,7 @@
 // viele andere Chats gerade im Hintergrund noch laufen/warten.
 import { useEffect } from 'react';
 import { ChatState } from '../types/chatState';
-import { tbListChats } from '../acp/chatSessionStore';
+import { tbListChats, tbSubscribeChats } from '../acp/chatSessionStore';
 
 const APP_NAME = 'TB-Goose';
 
@@ -62,9 +62,14 @@ export function useTbWindowTitle(
       }
     };
     apply();
-    // Nur die aktive Instanz pollt (guenstig) — fuer die "n wartend"-Zahl anderer Chats,
-    // die keinen eigenen Event-Kanal hierher hat.
-    const timer = window.setInterval(apply, 2000);
-    return () => window.clearInterval(timer);
+    // Statt Polling: auf Store-Aenderungen abonnieren (auch anderer Chats -> "n wartend").
+    const off = tbSubscribeChats(apply);
+    return () => {
+      off();
+      // Titel zuruecksetzen, sonst bleibt beim Verlassen/Schliessen des letzten aktiven
+      // Chats der alte "TB-Goose — <Chat> · <Status>" stehen. Der naechste aktive Chat
+      // ueberschreibt ohnehin sofort (gleicher Task -> kein sichtbares Flackern).
+      document.title = APP_NAME;
+    };
   }, [chatTitle, chatState, sessionId, isActive]);
 }

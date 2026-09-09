@@ -6,7 +6,10 @@ import { visit, SKIP } from 'unist-util-visit';
 import type { Root, Text, RootContent } from 'mdast';
 
 // Pfad bis zum ersten Whitespace/Trennzeichen. Nachlaufende Satzzeichen trennt der Code ab.
-const PATH_RE = /(?:[a-zA-Z]:[\\/][^\s<>"'`)\]]+|\\\\[^\s<>"'`)\]]+)/g;
+// (?<![A-Za-z]) + (?!/): schliesst URL-Schemata aus — bei "http://"/"ftp://" ist der
+// Laufwerksbuchstabe von einem Buchstaben umgeben ('p' in "ftp:") und auf ":" folgt "//".
+// So wird nur ein echtes Laufwerk (C:\, D:/ am Wort-/Zeilenanfang) als Pfad erkannt.
+const PATH_RE = /(?:(?<![A-Za-z])[a-zA-Z]:[\\/](?!\/)[^\s<>"'`)\]]+|\\\\[^\s<>"'`)\]]+)/g;
 
 export function remarkLocalPaths() {
   return (tree: Root) => {

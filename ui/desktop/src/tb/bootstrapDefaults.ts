@@ -3,8 +3,8 @@
 //    Windows-Keyring aus) — falls nicht bereits gesetzt.
 // 2) Schreibt beim ERSTEN Start die mitgelieferte Standard-Config (Proxy-Endpoint,
 //    Modell-Routen auto:code, Verhalten) in den Goose-Config-Ordner, sowie die
-//    managed .goosehints (Durchhalte-/Budget-Direktive) — Letztere bei jedem Start
-//    aktualisiert.
+//    .goosehints (Durchhalte-/Budget-Direktive) — beide nur, wenn noch nicht vorhanden
+//    (bestehende Nutzer-Anpassungen bleiben erhalten).
 import { app } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -91,10 +91,12 @@ export function ensureTbDefaults(): void {
       log.info(`[TB] Standard-Config geschrieben -> ${cfgDst}`);
     }
 
-    // Managed .goosehints: mit jedem Start auf den Release-Stand bringen.
+    // .goosehints: nur seeden, wenn noch keine vorhanden ist — sonst wuerden lokale
+    // Anpassungen (eigene Budget-/Persistenz-Direktiven) bei jedem Start ueberschrieben.
+    // Bewusste Aktualisierung auf den Release-Stand geht per Loeschen der Datei.
     const hintsSrc = path.join(base, 'goosehints');
     const hintsDst = path.join(cfgDir, '.goosehints');
-    if (fs.existsSync(hintsSrc)) {
+    if (fs.existsSync(hintsSrc) && !fs.existsSync(hintsDst)) {
       fs.copyFileSync(hintsSrc, hintsDst);
     }
   } catch (e) {

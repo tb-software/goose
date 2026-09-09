@@ -120,11 +120,16 @@ interface AcpChatSessionStoreInternal extends AcpChatSessionStore, AcpChatSessio
   // TB-Software: read-only Momentaufnahme aller bekannten Chats (fuer die Fenster-
   // Titelleiste: Anzahl "wartender"/arbeitender Chats).
   tbListChats(): { sessionId: string; chatState: ChatState; hasSession: boolean }[];
+  // TB-Software: Abo auf JEDE Store-Aenderung (session-uebergreifend) — ersetzt Polling
+  // in der Titelleiste. Liefert eine Abmelde-Funktion.
+  subscribeChats(listener: () => void): () => void;
 }
 
 function createAcpChatSessionStoreInternal(): AcpChatSessionStoreInternal {
   const sessionsById = new Map<string, StoreEntry>();
   const listenersBySessionId = new Map<string, Set<SnapshotListener>>();
+  // TB-Software: globale Listener (fuer die Fenster-Titelleiste: Status/Anzahl aller Chats).
+  const globalListeners = new Set<() => void>();
 
   const getSnapshot: AcpChatSessionStore['getSnapshot'] = (sessionId) => {
     const entry = sessionsById.get(sessionId);
@@ -203,6 +208,9 @@ function createAcpChatSessionStoreInternal(): AcpChatSessionStoreInternal {
       for (const listener of listeners) {
         listener(snapshot);
       }
+    }
+    for (const listener of globalListeners) {
+      listener();
     }
     return snapshot;
   };
@@ -460,6 +468,13 @@ function createAcpChatSessionStoreInternal(): AcpChatSessionStoreInternal {
     return out;
   };
 
+  const subscribeChats: AcpChatSessionStoreInternal['subscribeChats'] = (listener) => {
+    globalListeners.add(listener);
+    return () => {
+      globalListeners.delete(listener);
+    };
+  };
+
   const applyAcpSessionNotification: AcpChatSessionActions['applyAcpSessionNotification'] = (
     notification
   ) => {
@@ -582,6 +597,7 @@ function createAcpChatSessionStoreInternal(): AcpChatSessionStoreInternal {
     applyElicitationRequest,
     setElicitationStatus,
     tbListChats,
+    subscribeChats,
   };
 }
 
@@ -594,6 +610,11 @@ export function tbListChats(): {
   hasSession: boolean;
 }[] {
   return acpChatSessionStoreInternal.tbListChats();
+}
+
+// TB-Software: Abo auf jede Store-Aenderung (session-uebergreifend) fuer die Titelleiste.
+export function tbSubscribeChats(listener: () => void): () => void {
+  return acpChatSessionStoreInternal.subscribeChats(listener);
 }
 
 export const acpChatSessionStore: AcpChatSessionStore = storeFromInternal(
