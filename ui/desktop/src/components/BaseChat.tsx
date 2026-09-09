@@ -495,7 +495,7 @@ export default function BaseChat({
 
         <ChatInputCard
           className={cn(
-            'relative z-30 mx-4 mb-4',
+            'relative z-30 mx-4 mb-2',
             !disableAnimation && 'animate-[fadein_400ms_ease-in_forwards]'
           )}
         >
