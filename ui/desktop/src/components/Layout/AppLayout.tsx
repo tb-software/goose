@@ -12,6 +12,8 @@ import { Navigation } from './NavigationPanel';
 import { Z_INDEX } from './constants';
 import { cn } from '../../utils';
 import { UserInput } from '../../types/message';
+import { PreviewProvider } from '../../tb/preview/PreviewContext';
+import { PreviewPanel } from '../../tb/preview/PreviewPanel';
 
 const i18n = defineMessages({
   openNavigation: {
@@ -154,6 +156,9 @@ const AppLayoutContent: React.FC<AppLayoutContentProps> = ({ activeSessions }) =
             <ChatSessionsContainer setChat={setChat} activeSessions={activeSessions} />
           </div>
         </div>
+
+        {/* TB-Software: rechtes Vorschau-Panel (nur sichtbar, wenn eine Datei gewählt ist) */}
+        <PreviewPanel />
       </div>
     </div>
   );
@@ -170,7 +175,9 @@ interface AppLayoutProps {
 export const AppLayout: React.FC<AppLayoutProps> = ({ activeSessions }) => {
   return (
     <NavigationProvider>
-      <AppLayoutContent activeSessions={activeSessions} />
+      <PreviewProvider>
+        <AppLayoutContent activeSessions={activeSessions} />
+      </PreviewProvider>
     </NavigationProvider>
   );
 };

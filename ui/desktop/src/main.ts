@@ -3009,6 +3009,106 @@ async function appMain() {
     }
   });
 
+  // TB-Software: Datei im Explorer anzeigen UND markieren (explorer /select).
+  ipcMain.handle('show-item-in-folder', async (_event, fullPath: string) => {
+    try {
+      shell.showItemInFolder(fullPath);
+      return true;
+    } catch (error) {
+      console.error('Error showing item in folder:', error);
+      return false;
+    }
+  });
+
+  // TB-Software: Datei fuer das Vorschau-Panel lesen (Text=utf8, Binaer=base64).
+  ipcMain.handle('tb-read-file', async (_event, filePath: string) => {
+    const MAX = 40 * 1024 * 1024;
+    const textExt = new Set([
+      'md', 'markdown', 'txt', 'log', 'csv', 'json', 'xml', 'yaml', 'yml', 'ini', 'toml', 'sql',
+      'css', 'ts', 'tsx', 'js', 'jsx', 'py', 'rs', 'c', 'cpp', 'cc', 'h', 'hpp', 'cs', 'java',
+      'go', 'rb', 'php', 'sh', 'ps1', 'bat', 'html', 'htm',
+    ]);
+    const mimeByExt: Record<string, string> = {
+      png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp',
+      bmp: 'image/bmp', svg: 'image/svg+xml', mp4: 'video/mp4', webm: 'video/webm', ogg: 'video/ogg',
+      mov: 'video/quicktime', m4v: 'video/x-m4v',
+    };
+    try {
+      const stat = await fs.stat(filePath);
+      if (!stat.isFile()) return { ok: false, error: 'Kein Datei-Pfad.' };
+      const ext = (filePath.split('.').pop() || '').toLowerCase();
+      const truncated = stat.size > MAX;
+      if (textExt.has(ext)) {
+        const buf = await fs.readFile(filePath);
+        const slice = truncated ? buf.subarray(0, MAX) : buf;
+        return { ok: true, encoding: 'utf8', data: slice.toString('utf8'), mime: 'text/plain', truncated };
+      }
+      if (truncated) return { ok: false, error: 'Datei zu gross fuer Vorschau (>40 MB).' };
+      const buf = await fs.readFile(filePath);
+      return {
+        ok: true,
+        encoding: 'base64',
+        data: buf.toString('base64'),
+        mime: mimeByExt[ext] ?? 'application/octet-stream',
+        truncated: false,
+      };
+    } catch (error) {
+      return { ok: false, error: (error as Error).message };
+    }
+  });
+
+  // TB-Software: Datei-NAMEN-Suche über Projekt-Ordner (kein Inhalt; v1).
+  ipcMain.handle('tb-search', async (_event, roots: string[], query: string) => {
+    const q = (query || '').trim().toLowerCase();
+    if (!q) return { ok: true, results: [], truncated: false };
+    const IGNORE = new Set([
+      'node_modules', '.git', '.venv', 'venv', 'dist', 'build', 'out', '.next',
+      'target', '.cache', '__pycache__', '.idea', '.vs', 'bin', 'obj',
+    ]);
+    const MAX_RESULTS = 500;
+    const MAX_ENTRIES = 200000;
+    const deadline = Date.now() + 8000;
+    const results: Array<{ path: string; name: string; rel: string; root: string }> = [];
+    let entries = 0;
+    let truncated = false;
+    const stop = () => results.length >= MAX_RESULTS || entries >= MAX_ENTRIES || Date.now() > deadline;
+
+    async function walk(dir: string, root: string): Promise<void> {
+      if (stop()) { truncated = true; return; }
+      let dh: import('node:fs').Dirent[];
+      try {
+        dh = await fs.readdir(dir, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const d of dh) {
+        if (stop()) { truncated = true; return; }
+        entries++;
+        if (d.isDirectory()) {
+          if (IGNORE.has(d.name) || d.name.startsWith('.')) continue;
+          await walk(path.join(dir, d.name), root);
+        } else if (d.isFile() && d.name.toLowerCase().includes(q)) {
+          const full = path.join(dir, d.name);
+          results.push({ path: full, name: d.name, rel: path.relative(root, full), root });
+        }
+      }
+    }
+
+    const seen = new Set<string>();
+    for (const root of roots || []) {
+      if (!root || seen.has(root)) continue;
+      seen.add(root);
+      try {
+        const st = await fs.stat(root);
+        if (st.isDirectory()) await walk(root, root);
+      } catch {
+        /* fehlenden Root überspringen */
+      }
+      if (truncated) break;
+    }
+    return { ok: true, results, truncated };
+  });
+
   ipcMain.handle('launch-app', async (event, gooseApp: GooseApp) => {
     try {
       if (isRetiredGooseChatApp(gooseApp)) {

@@ -47,6 +47,7 @@ import { View, ViewOptions } from './utils/navigationUtils';
 import { useNavigation } from './hooks/useNavigation';
 import { errorMessage } from './utils/conversionUtils';
 import { getInitialWorkingDir } from './utils/workingDir';
+import { TbSearchView } from './tb/search/TbSearchView';
 import { usePageViewTracking } from './hooks/useAnalytics';
 import { trackErrorWithContext } from './utils/analytics';
 import { AppEvents } from './constants/events';
@@ -215,6 +216,10 @@ const RecipesRoute = () => {
 
 const SkillsRoute = () => {
   return <SkillsView />;
+};
+
+const TbSearchRoute = () => {
+  return <TbSearchView />;
 };
 
 const PermissionRoute = () => {
@@ -671,6 +676,7 @@ export function AppInner() {
               <Route path="schedules" element={<SchedulesRoute />} />
               <Route path="recipes" element={<RecipesRoute />} />
               <Route path="skills" element={<SkillsRoute />} />
+              <Route path="tb-search" element={<TbSearchRoute />} />
               <Route path="permission" element={<PermissionRoute />} />
             </Route>
           </Routes>

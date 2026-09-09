@@ -7,6 +7,10 @@ import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { toLocalFsPath } from '../tb/localPath';
+import { remarkLocalPaths } from '../tb/remarkLocalPaths';
+import { usePreview } from '../tb/preview/PreviewContext';
+import { previewKindFor } from '../tb/preview/previewKind';
 // Improved oneDark theme for better comment contrast and readability
 const customOneDarkTheme = {
   ...oneDark,
@@ -189,6 +193,7 @@ const MarkdownContent = memo(function MarkdownContent({
   className = '',
 }: MarkdownContentProps) {
   const intl = useIntl();
+  const preview = usePreview();
   const processedContent = useMemo(() => {
     try {
       return wrapHTMLInCodeBlock(content);
@@ -236,7 +241,12 @@ const MarkdownContent = memo(function MarkdownContent({
     >
       <ReactMarkdown
         urlTransform={customUrlTransform}
-        remarkPlugins={[remarkGfm, remarkBreaks, [remarkMath, { singleDollarTextMath: false }]]}
+        remarkPlugins={[
+          remarkGfm,
+          remarkBreaks,
+          [remarkMath, { singleDollarTextMath: false }],
+          remarkLocalPaths,
+        ]}
         rehypePlugins={[
           [
             rehypeKatex,
@@ -249,17 +259,34 @@ const MarkdownContent = memo(function MarkdownContent({
         ]}
         components={{
           a: (props) => {
+            // TB-Software: lokale Dateipfade -> im Explorer markieren statt Browser.
+            const localPath = props.href ? toLocalFsPath(props.href) : null;
             return (
               <a
                 {...props}
                 target="_blank"
                 rel="noopener noreferrer"
+                title={localPath ? 'Im Explorer anzeigen' : undefined}
+                className={
+                  localPath
+                    ? `${props.className ?? ''} underline decoration-dotted cursor-pointer`.trim()
+                    : props.className
+                }
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
                   if (!props.href) return;
 
-                  void handleOpenExternal(props.href);
+                  if (localPath) {
+                    // Vorschaubar -> rechtes Panel; sonst im Explorer markieren.
+                    if (preview && previewKindFor(localPath) !== 'unknown') {
+                      preview.open(localPath);
+                    } else {
+                      void window.electron.showItemInFolder(localPath);
+                    }
+                  } else {
+                    void handleOpenExternal(props.href);
+                  }
                 }}
               />
             );

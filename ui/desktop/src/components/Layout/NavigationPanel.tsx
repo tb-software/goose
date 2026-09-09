@@ -20,6 +20,7 @@ import { formatMessageTimestamp } from '../../utils/timeUtils';
 import { cn } from '../../utils';
 import type { ProjectGroup } from '../../utils/projectSessions';
 import { defineMessages, useIntl } from '../../i18n';
+import { TB_BRANDING } from '../../tb/branding';
 
 type StreamState = 'idle' | 'loading' | 'streaming' | 'error';
 
@@ -229,6 +230,7 @@ export const Navigation: React.FC<{ className?: string }> = ({ className }) => {
 
   const visibleItems = useMemo<NavItem[]>(() => {
     return NAV_ITEMS.filter((item) => {
+      if (TB_BRANDING.hiddenNavItems.includes(item.id)) return false;
       if (item.path === '/apps') return appsExtensionEnabled;
       return true;
     });
