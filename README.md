@@ -35,9 +35,6 @@ LLMProxy2-Modell-Flotte.
   einem selbst geschriebenen **und ausgeführten** Skript).
 - **👁 Vorschau-Panel (rechts).** Markdown, Text, Code (Syntax-Highlight), HTML (Sandbox-iframe),
   Bilder und Video — mit **Auto-Refresh**, sobald sich die Datei auf der Platte ändert.
-
-  <img src="docs/assets/preview-panel.png" alt="Vorschau-Panel rendert eine HTML-Datei" width="720">
-
 - **🌐 Eingebetteter, steuerbarer Browser.** Ein echter Browser (Electron-Webview) im rechten
   Panel — URL-Leiste, Zurück/Vor/Neuladen, fensterproportional breit. (Hier live: das
   TB-Software-Projekt **[Metrux](https://www.tb-software.ch/ai/metrux/)** direkt im Panel.)
@@ -46,8 +43,6 @@ LLMProxy2-Modell-Flotte.
 
 - **📊 Metrik-Leiste.** Unten laufend die Kennzahlen des Chats: Anfragen, belegter/verbleibender
   Kontext, Kosten, Sitzungsdauer und ein Token-Verlauf-Sparkline.
-
-  <img src="docs/assets/metrics-bar.png" alt="Metrik-Leiste mit Tokens, Dauer und Sparkline" width="720">
 
 - **📁 Sicheres Arbeitsverzeichnis.** Pro Chat wählbar; ein neuer Chat schlägt das zuletzt
   genutzte Verzeichnis vor. Existiert ein getippter Ordner nicht, fragt ein Dialog
