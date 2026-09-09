@@ -13,6 +13,7 @@ import Close from './icons/Close';
 import Edit from './icons/Edit';
 import { Button } from './ui/button';
 import { defineMessages, useIntl } from '../i18n';
+import { useConfig } from './ConfigContext';
 
 const i18n = defineMessages({
   editPlaceholder: {
@@ -29,8 +30,7 @@ const i18n = defineMessages({
   },
   editInPlaceDescription: {
     id: 'userMessage.editInPlaceDescription',
-    defaultMessage:
-      '<b>Edit in Place</b> updates this session • <b>Fork Session</b> creates a new session',
+    defaultMessage: '<b>Save</b> resends the (edited) prompt in this session.',
   },
   cancel: {
     id: 'userMessage.cancel',
@@ -42,15 +42,15 @@ const i18n = defineMessages({
   },
   editInPlace: {
     id: 'userMessage.editInPlace',
-    defaultMessage: 'Edit in Place',
+    defaultMessage: 'Save',
   },
   editInPlaceAriaLabel: {
     id: 'userMessage.editInPlaceAriaLabel',
-    defaultMessage: 'Edit message in place',
+    defaultMessage: 'Save and resend prompt',
   },
   editInPlaceTitle: {
     id: 'userMessage.editInPlaceTitle',
-    defaultMessage: 'Update the message in this session',
+    defaultMessage: 'Save and resend the prompt in this session',
   },
   forkSession: {
     id: 'userMessage.forkSession',
@@ -98,6 +98,10 @@ interface UserMessageProps {
 
 function UserMessage({ message, onMessageUpdate }: UserMessageProps) {
   const intl = useIntl();
+  // TB-Software: "Abzweigen/Fork" beim Bearbeiten ist per Default AUS. Nur wenn
+  // GOOSE_SHOW_FORK_EDIT in den Einstellungen aktiv ist, erscheint der Fork-Button.
+  const { config } = useConfig();
+  const showForkEdit = String(config?.GOOSE_SHOW_FORK_EDIT ?? '').toLowerCase() === 'true';
   const contentRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [isEditing, setIsEditing] = useState(false);
@@ -172,14 +176,9 @@ function UserMessage({ message, onMessageUpdate }: UserMessageProps) {
 
       setIsEditing(false);
 
-      if (
-        editType === 'edit' &&
-        editContent.trim() === textContent.trim() &&
-        retainedImages.length === messageImages.length
-      ) {
-        return;
-      }
-
+      // TB-Software: "Speichern" sendet den Prompt IMMER neu — auch bei unveraendertem
+      // Inhalt (Timo-Wunsch). Der fruehere Skip bei identischem Text liess "Speichern"
+      // scheinbar nichts tun.
       if (onMessageUpdate && message.id) {
         onMessageUpdate(message.id, editContent, editType, retainedImages);
       }
@@ -308,13 +307,15 @@ function UserMessage({ message, onMessageUpdate }: UserMessageProps) {
                 >
                   {intl.formatMessage(i18n.editInPlace)}
                 </Button>
-                <Button
-                  onClick={() => handleSave('fork')}
-                  aria-label={intl.formatMessage(i18n.forkSessionAriaLabel)}
-                  title={intl.formatMessage(i18n.forkSessionTitle)}
-                >
-                  {intl.formatMessage(i18n.forkSession)}
-                </Button>
+                {showForkEdit && (
+                  <Button
+                    onClick={() => handleSave('fork')}
+                    aria-label={intl.formatMessage(i18n.forkSessionAriaLabel)}
+                    title={intl.formatMessage(i18n.forkSessionTitle)}
+                  >
+                    {intl.formatMessage(i18n.forkSession)}
+                  </Button>
+                )}
               </div>
             </div>
           </div>

@@ -4587,16 +4587,16 @@
     "defaultMessage": "Angehängte Bilder:"
   },
   "userMessage.editInPlace": {
-    "defaultMessage": "An Ort und Stelle bearbeiten"
+    "defaultMessage": "Speichern"
   },
   "userMessage.editInPlaceAriaLabel": {
-    "defaultMessage": "Nachricht an Ort und Stelle bearbeiten"
+    "defaultMessage": "Speichern und Prompt neu senden"
   },
   "userMessage.editInPlaceDescription": {
-    "defaultMessage": "<b>An Ort und Stelle bearbeiten</b> aktualisiert diese Sitzung • <b>Sitzung verzweigen</b> erstellt eine neue Sitzung"
+    "defaultMessage": "<b>Speichern</b> sendet den (bearbeiteten) Prompt neu in dieser Sitzung."
   },
   "userMessage.editInPlaceTitle": {
-    "defaultMessage": "Die Nachricht in dieser Sitzung aktualisieren"
+    "defaultMessage": "Speichern und Prompt neu senden"
   },
   "userMessage.editMessageAriaLabel": {
     "defaultMessage": "Nachricht bearbeiten: {preview}"
