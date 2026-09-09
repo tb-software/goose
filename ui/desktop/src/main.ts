@@ -3013,14 +3013,53 @@ async function appMain() {
     }
   });
 
-  // TB-Software: Datei im Explorer anzeigen UND markieren (explorer /select).
+  // TB-Software: Datei im Explorer anzeigen UND markieren.
+  // shell.showItemInFolder ist auf diesem Windows-/Electron-Setup KAPUTT: Backslash-Pfade
+  // werfen, Forward-Slash-Pfade oeffnen faelschlich C:\ (Wurzel) statt die Datei zu markieren
+  // (beides verifiziert). Daher direkt die kanonische Windows-Methode: explorer.exe /select,<Pfad>.
+  // explorer liefert auch bei Erfolg Exit-Code 1 -> NICHT auf Exit pruefen, nur starten.
+  const tbRevealInFolder = (raw: string): boolean => {
+    try {
+      if (process.platform === 'win32') {
+        const native = path.win32.normalize(raw);
+        spawn('explorer.exe', ['/select,' + native], { detached: true, stdio: 'ignore' }).unref();
+        return true;
+      }
+      shell.showItemInFolder(raw);
+      return true;
+    } catch {
+      return false;
+    }
+  };
   ipcMain.handle('show-item-in-folder', async (_event, fullPath: string) => {
     try {
-      shell.showItemInFolder(fullPath);
-      return true;
+      if (fullPath && tbRevealInFolder(fullPath)) return true;
+      const dir = fullPath ? path.win32.dirname(fullPath) : '';
+      if (dir) {
+        const err = await shell.openPath(dir.replace(/\\/g, '/'));
+        if (err === '') return true;
+      }
+      console.error('Error showing item in folder: alle Varianten fehlgeschlagen fuer', fullPath);
+      return false;
     } catch (error) {
       console.error('Error showing item in folder:', error);
       return false;
+    }
+  });
+
+  // TB-Software: aktuellen Chat als Datei in einen festen Export-Ordner schreiben und
+  // im Explorer markieren -> der Nutzer kann die Datei anschliessend verschicken/teilen.
+  ipcMain.handle('tb-export-chat', async (_event, fileName: string, content: string) => {
+    try {
+      const dir = path.join(app.getPath('documents'), 'TB-Goose-Exports');
+      await fs.mkdir(dir, { recursive: true });
+      const safe = (fileName || 'chat').replace(/[^\w.\- ]+/g, '_').slice(0, 120);
+      const target = path.join(dir, safe);
+      await fs.writeFile(target, content ?? '', 'utf8');
+      tbRevealInFolder(target);
+      return { ok: true, path: target };
+    } catch (error) {
+      return { ok: false, error: (error as Error).message };
     }
   });
 

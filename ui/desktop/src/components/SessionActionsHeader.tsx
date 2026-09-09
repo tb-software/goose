@@ -8,6 +8,7 @@ import {
   Edit2,
   FileJson,
   LoaderCircle,
+  Share2,
 } from 'lucide-react';
 import { toast } from 'react-toastify';
 import { AppEvents } from '../constants/events';
@@ -361,6 +362,7 @@ export default function SessionActionsHeader({
   const [isJsonLoading, setIsJsonLoading] = useState(false);
   const [isModelInteractionsLoading, setIsModelInteractionsLoading] = useState(false);
   const [isDuplicating, setIsDuplicating] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const [fullTextSelection, setFullTextSelection] = useState<FullTextSelection | null>(null);
   const jsonLoadRequestId = useRef(0);
 
@@ -424,6 +426,30 @@ export default function SessionActionsHeader({
       setIsDuplicating(false);
     }
   }, [intl, isDuplicating, session]);
+
+  // TB-Software: Chat als JSON in den Export-Ordner schreiben + im Explorer markieren,
+  // damit der Nutzer ihn verschicken/teilen kann (verlustfrei, direkt weiterverwendbar).
+  const handleExportChat = useCallback(async () => {
+    if (!session || isExporting) return;
+    setIsExporting(true);
+    try {
+      const json = await acpExportSession(session.id);
+      const fileName = `${getSessionDisplayName(session)}-${session.id}.json`.replace(
+        /[\\/:*?"<>|]+/g,
+        '_'
+      );
+      const res = await window.electron.tbExportChat(fileName, json);
+      if (res?.ok) {
+        toast.success(`Chat exportiert (im Explorer markiert):\n${res.path}`);
+      } else {
+        toast.error(`Export fehlgeschlagen: ${res?.error ?? 'unbekannt'}`);
+      }
+    } catch (error) {
+      toast.error(`Export fehlgeschlagen: ${errorMessage(error, 'Unknown error')}`);
+    } finally {
+      setIsExporting(false);
+    }
+  }, [session, isExporting]);
 
   const handleViewJson = useCallback(async () => {
     if (!session) return;
@@ -568,6 +594,14 @@ export default function SessionActionsHeader({
                 <Copy className="size-4" />
               )}
               {intl.formatMessage(i18n.duplicateSession)}
+            </DropdownMenuItem>
+            <DropdownMenuItem disabled={isExporting} onSelect={() => void handleExportChat()}>
+              {isExporting ? (
+                <LoaderCircle className="size-4 animate-spin" />
+              ) : (
+                <Share2 className="size-4" />
+              )}
+              Chat teilen (exportieren)
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => void handleViewJson()}>
               {isJsonLoading ? (

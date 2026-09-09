@@ -195,6 +195,7 @@ type ElectronAPI = {
   tbWatchFile: (path: string) => Promise<boolean>;
   tbUnwatchFile: () => Promise<boolean>;
   onTbFileChanged: (cb: (path: string) => void) => () => void;
+  tbExportChat: (fileName: string, content: string) => Promise<{ ok: boolean; path?: string; error?: string }>;
   launchApp: (app: GooseApp) => Promise<void>;
   refreshApp: (app: GooseApp) => Promise<void>;
   closeApp: (appName: string) => Promise<void>;
@@ -362,6 +363,8 @@ const electronAPI: ElectronAPI = {
   tbSearch: (roots: string[], query: string) => ipcRenderer.invoke('tb-search', roots, query),
   tbWatchFile: (path: string) => ipcRenderer.invoke('tb-watch-file', path),
   tbUnwatchFile: () => ipcRenderer.invoke('tb-unwatch-file'),
+  tbExportChat: (fileName: string, content: string) =>
+    ipcRenderer.invoke('tb-export-chat', fileName, content),
   onTbFileChanged: (cb: (path: string) => void) => {
     const listener = (_e: unknown, p: string) => cb(p);
     ipcRenderer.on('tb-file-changed', listener);
