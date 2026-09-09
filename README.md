@@ -36,8 +36,11 @@ LLMProxy2-Modell-Flotte.
   <img src="docs/assets/preview-panel.png" alt="Vorschau-Panel rendert eine HTML-Datei" width="720">
 
 - **🌐 Eingebetteter, steuerbarer Browser.** Ein echter Browser (Electron-Webview) im rechten
-  Panel — URL-Leiste, Zurück/Vor/Neuladen, fensterproportional breit. (Oben im Hero: das
-  TB-Software-Projekt **Metrux** live im Panel.)
+  Panel — URL-Leiste, Zurück/Vor/Neuladen, fensterproportional breit. (Hier live: das
+  TB-Software-Projekt **[Metrux](https://www.tb-software.ch/ai/metrux/)** direkt im Panel.)
+
+  <img src="docs/assets/metrux-demo.gif" alt="Eingebetteter Browser mit Metrux live im Panel" width="720">
+
 - **📊 Metrik-Leiste.** Unten laufend die Kennzahlen des Chats: Anfragen, belegter/verbleibender
   Kontext, Kosten, Sitzungsdauer und ein Token-Verlauf-Sparkline.
 
