@@ -1294,6 +1294,10 @@ const createChat = async (
         webSecurity: true,
         nodeIntegration: false,
         contextIsolation: true,
+        // TB-Software: erlaubt das <webview>-Tag fuer den eingebetteten Browser im
+        // Vorschau-Panel (rechts). Das Gast-Webview laeuft isoliert (eigene Partition,
+        // kein nodeIntegration) und ist per CDP durch den Agenten steuerbar.
+        webviewTag: true,
         additionalArguments: [
           JSON.stringify({
             ...appConfig,

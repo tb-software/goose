@@ -7,6 +7,7 @@ import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import MarkdownContent from '../../components/MarkdownContent';
 import { usePreview } from './PreviewContext';
 import { previewKindFor, baseName, type PreviewKind } from './previewKind';
+import { TbBrowser } from './TbBrowser';
 
 interface ReadResult {
   ok: boolean;
@@ -206,10 +207,11 @@ export const PreviewPanel: React.FC = () => {
     }
   }, [width]);
 
-  if (!preview || (!preview.path && !preview.inline)) return null;
+  if (!preview || (!preview.path && !preview.inline && !preview.browserUrl)) return null;
   const path = preview.path;
   const inline = preview.inline;
-  const title = inline ? inline.name : path ? baseName(path) : '';
+  const browserUrl = preview.browserUrl;
+  const title = browserUrl ? 'Browser' : inline ? inline.name : path ? baseName(path) : '';
 
   return (
     <div
@@ -246,7 +248,9 @@ export const PreviewPanel: React.FC = () => {
             <X className="w-4 h-4" />
           </button>
         </div>
-        {inline ? (
+        {browserUrl ? (
+          <TbBrowser key={browserUrl} initialUrl={browserUrl} />
+        ) : inline ? (
           <div className="flex-1 overflow-auto p-4 flex items-center justify-center">
             {inline.kind === 'video' ? (
               <video src={inline.dataUrl} controls className="max-w-full max-h-full" />
