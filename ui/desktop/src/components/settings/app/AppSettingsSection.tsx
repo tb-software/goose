@@ -18,6 +18,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../..
 import ThemeSelector from '../../GooseSidebar/ThemeSelector';
 import BlockLogoBlack from './icons/block-lockup_black.png';
 import BlockLogoWhite from './icons/block-lockup_white.png';
+import tbSoftwareLogo from '../../../tb/assets/tb-software-logo.png';
 import TelemetrySettings from './TelemetrySettings';
 import { trackSettingToggled } from '../../../utils/analytics';
 import type { LanguageSetting } from '../../../utils/settings';
@@ -556,6 +557,33 @@ export default function AppSettingsSection({ scrollToSection }: AppSettingsSecti
           </CardContent>
         </Card>
       )}
+
+      {/* TB-Software: Über / Herkunft (Apache-2.0 Attribution) */}
+      <Card className="rounded-lg">
+        <CardHeader className="pb-0">
+          <CardTitle className="mb-1">Über TB-Goose</CardTitle>
+        </CardHeader>
+        <CardContent className="pt-4 px-4">
+          <div className="flex items-center gap-3">
+            <img src={tbSoftwareLogo} alt="TB-Software" className="h-8 w-auto" />
+            <div className="text-sm text-text-secondary">
+              <div className="text-text-primary font-medium">TB-Goose</div>
+              <div>
+                Basiert auf dem Open-Source-Projekt{' '}
+                <button
+                  className="underline"
+                  onClick={() =>
+                    window.electron.openExternal('https://github.com/aaif-goose/goose')
+                  }
+                >
+                  Goose
+                </button>{' '}
+                (Apache-2.0). Angepasst von TB-Software.
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Update Section - only show if GOOSE_VERSION is NOT set */}
       {UPDATES_ENABLED && shouldShowUpdates && (

@@ -817,7 +817,7 @@ async function handleFileOpen(filePath: string) {
 
     // Show user-friendly error notification
     new Notification({
-      title: 'Goose',
+      title: 'TB-Goose',
       body: `Could not open directory: ${path.basename(filePath)}`,
     }).show();
   }
