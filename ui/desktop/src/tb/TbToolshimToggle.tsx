@@ -1,6 +1,7 @@
-// TB-Software: Bottom-Bar-Anzeige + Umschalter für GOOSE_TOOLSHIM.
-// Toolshim = Tool-Aufrufe aus TEXT parsen (für Modelle ohne native tool_calls),
-// statt sich auf native OpenAI tool_calls zu verlassen.
+// TB-Software: Bottom-Bar-Anzeige + Umschalter für den Werkzeug-Modus (GOOSE_TOOLSHIM).
+// "Kompatibel" (Toolshim AN) = Werkzeug-Aufrufe werden aus TEXT geparst — nötig für
+// Modelle OHNE native Werkzeuge (z. B. auto:chat). "Nativ" (Toolshim AUS) = native
+// tool_calls, zuverlässiger, für tool-fähige Modelle (z. B. auto:code).
 import React from 'react';
 import { Wrench } from 'lucide-react';
 import { useConfig } from '../components/ConfigContext';
@@ -24,8 +25,8 @@ export const TbToolshimToggle: React.FC = () => {
       onClick={toggle}
       title={
         enabled
-          ? 'Toolshim AN — Tool-Aufrufe werden aus Text geparst (für Modelle ohne native tool_calls). Klick zum Ausschalten.'
-          : 'Toolshim AUS — nutzt native tool_calls. Klick zum Einschalten (Text-Tool-Parsing).'
+          ? 'Werkzeug-Modus: KOMPATIBEL — Werkzeuge laufen über Text-Parsing, für Modelle ohne native Werkzeuge (z. B. auto:chat). Klick für Nativ.'
+          : 'Werkzeug-Modus: NATIV — schnelle native Werkzeug-Aufrufe (z. B. auto:code). Wenn ein Modell Werkzeuge nicht ausführt (z. B. auto:chat), hier auf Kompatibel schalten.'
       }
       className={cn(
         'flex items-center gap-1 px-2 py-1 rounded-full text-xs transition-colors no-drag',
@@ -35,7 +36,7 @@ export const TbToolshimToggle: React.FC = () => {
       )}
     >
       <Wrench className={cn('w-3.5 h-3.5', enabled && 'text-green-500')} />
-      <span>Shim {enabled ? 'an' : 'aus'}</span>
+      <span>Tools: {enabled ? 'Kompatibel' : 'Nativ'}</span>
     </button>
   );
 };

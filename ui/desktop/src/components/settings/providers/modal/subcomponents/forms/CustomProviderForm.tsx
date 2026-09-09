@@ -146,7 +146,7 @@ const i18n = defineMessages({
   },
   alwaysUseToolshim: {
     id: 'customProviderForm.alwaysUseToolshim',
-    defaultMessage: 'Always use Toolshim for this provider',
+    defaultMessage: 'Werkzeug-Modus „Kompatibel" für diesen Provider erzwingen (für Modelle ohne native Werkzeuge)',
   },
   customHeaders: {
     id: 'customProviderForm.customHeaders',
