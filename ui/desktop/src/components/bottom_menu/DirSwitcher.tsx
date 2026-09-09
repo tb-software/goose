@@ -128,6 +128,21 @@ export const DirSwitcher: React.FC<DirSwitcherProps> = ({
   }, [isMenuOpen, refreshMenuData]);
 
   const applyDirectoryChange = async (newDir: string) => {
+    // TB-Software: Existiert das (getippte) Verzeichnis nicht, per nativem Dialog fragen,
+    // ob es angelegt werden soll — statt eines blanken "invalid directory path"-Fehlers.
+    try {
+      const ensured = await window.electron.tbEnsureDirectory(newDir);
+      if (!ensured.ok) {
+        if (!ensured.cancelled && ensured.error) {
+          toast.error(`Verzeichnis nicht verfügbar: ${ensured.error}`);
+        }
+        return; // abgebrochen oder Fehler -> Wechsel nicht durchführen
+      }
+    } catch (error) {
+      console.error('[DirSwitcher] tbEnsureDirectory failed:', error);
+      // Bei IPC-Problemen NICHT blockieren — Backend validiert weiterhin.
+    }
+
     if (sessionId) {
       onRestartStart?.();
 

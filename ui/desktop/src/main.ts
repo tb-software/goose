@@ -3063,6 +3063,40 @@ async function appMain() {
     }
   });
 
+  // TB-Software: Sicherstellen, dass ein Arbeitsverzeichnis existiert. Fehlt es, wird der
+  // Nutzer per NATIVEM Dialog gefragt, ob es angelegt werden soll (JA -> mkdir). So kommt
+  // beim Setzen eines neuen Ordners kein blanker "invalid directory path"-Fehler mehr.
+  ipcMain.handle('tb-ensure-directory', async (event, dirPath: string) => {
+    try {
+      const p = (dirPath || '').trim();
+      if (!p) return { ok: false, error: 'empty path' };
+      const stat = await fs.stat(p).catch(() => null);
+      if (stat && stat.isDirectory()) return { ok: true, existed: true };
+      if (stat && !stat.isDirectory()) {
+        return { ok: false, error: 'Pfad existiert, ist aber keine Datei-Verzeichnis.' };
+      }
+      const parentWin = BrowserWindow.fromWebContents(event.sender) ?? undefined;
+      const opts = {
+        type: 'question' as const,
+        buttons: ['Verzeichnis erstellen', 'Abbrechen'],
+        defaultId: 0,
+        cancelId: 1,
+        title: 'Verzeichnis erstellen?',
+        message: 'Das Verzeichnis existiert noch nicht:',
+        detail: `${p}\n\nSoll es jetzt angelegt werden?`,
+        noLink: true,
+      };
+      const { response } = parentWin
+        ? await dialog.showMessageBox(parentWin, opts)
+        : await dialog.showMessageBox(opts);
+      if (response !== 0) return { ok: false, cancelled: true };
+      await fs.mkdir(p, { recursive: true });
+      return { ok: true, created: true };
+    } catch (error) {
+      return { ok: false, error: (error as Error).message };
+    }
+  });
+
   // TB-Software: Datei fuer das Vorschau-Panel lesen (Text=utf8, Binaer=base64).
   ipcMain.handle('tb-read-file', async (_event, filePath: string) => {
     const MAX = 40 * 1024 * 1024;

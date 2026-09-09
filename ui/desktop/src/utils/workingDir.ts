@@ -20,16 +20,33 @@ export const getInitialWorkingDir = (): string => {
  */
 export const getEffectiveWorkingDir = async (): Promise<string> => {
   const initial = getInitialWorkingDir();
+  // TB-Software: Ein neuer Chat soll das ZULETZT gesetzte Arbeitsverzeichnis vorschlagen
+  // (Wunsch: sicheres Arbeiten in einem bekannten Ordner). recentDirs[0] ist der zuletzt
+  // in irgendeinem Chat gesetzte Ordner; listRecentDirs liefert nur real existierende,
+  // lokale Verzeichnisse. Ein echtes Remote-Backend braucht dagegen seinen Remote-Pfad —
+  // dort bleibt die bestehende Logik massgeblich, deshalb wird preferRecent nur auf den
+  // lokalen/Fallback-Zweigen angewandt.
+  const preferRecent = async (fallback: string): Promise<string> => {
+    try {
+      const recents = await window.electron.listRecentDirs();
+      if (recents && recents.length > 0 && recents[0]) {
+        return recents[0];
+      }
+    } catch {
+      // ignore — Fallback unten
+    }
+    return fallback;
+  };
   const boundUrl = window.appConfig?.get('GOOSE_EXTERNAL_BACKEND_URL') as string | undefined;
   const source = window.appConfig?.get('GOOSE_EXTERNAL_BACKEND_SOURCE') as string | undefined;
   if (window.appConfig?.get('GOOSE_EXTERNAL_BACKEND') !== true || !boundUrl) {
-    return initial;
+    return preferRecent(initial);
   }
   try {
     const external = await window.electron.getSetting('externalGoosed');
     const remote = external?.workingDir?.trim();
     if (!remote) {
-      return initial;
+      return preferRecent(initial);
     }
     // Env-mode backends use settings.externalGoosed.workingDir regardless of the
     // enabled flag or URL (see getActiveExternalBackend); settings-mode requires
@@ -47,7 +64,7 @@ export const getEffectiveWorkingDir = async (): Promise<string> => {
   } catch {
     // Settings unavailable; fall back to the remembered directory.
   }
-  return initial;
+  return preferRecent(initial);
 };
 
 const normalizeUrl = (url: string): string => url.trim().replace(/\/+$/, '');

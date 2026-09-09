@@ -32,8 +32,8 @@ import {
 } from '../types/message';
 import { substituteParameters } from '../utils/parameterSubstitution';
 import { useAutoSubmit } from '../hooks/useAutoSubmit';
-import { Goose } from './icons';
 import EnvironmentBadge from './GooseSidebar/EnvironmentBadge';
+import { TbMetricsBar } from '../tb/TbMetricsBar';
 import SessionActionsHeader from './SessionActionsHeader';
 import { isAcpRecovering, subscribeToAcpRecovery } from '../acp/acpConnection';
 
@@ -424,19 +424,9 @@ export default function BaseChat({
 
         {/* Chat container with sticky recipe header */}
         <div className="flex flex-col flex-1 min-h-0 relative">
-          {/* Goose watermark - top right */}
+          {/* TB-Software: goose-Wortmarke/Docs-Link oben rechts entfernt (App-Info steht im
+              „Über TB-Goose"-Bereich). Nur der dezente Umgebungs-Badge bleibt. */}
           <div className="absolute top-[14px] right-4 z-[60] flex flex-row items-center gap-1">
-            <a
-              href="https://goose-docs.ai"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="no-drag flex flex-row items-center gap-1 hover:opacity-80 transition-opacity"
-            >
-              <Goose className="size-5 goose-icon-animation" />
-              <span className="text-sm leading-none text-text-secondary -translate-y-px">
-                goose
-              </span>
-            </a>
             <EnvironmentBadge className="translate-y-px" />
           </div>
 
@@ -550,6 +540,14 @@ export default function BaseChat({
             {...customChatInputProps}
           />
         </ChatInputCard>
+
+        {/* TB-Software: Metrik-/Statistik-Leiste (Kennzahlen des Chats + Token-Verlauf). */}
+        <TbMetricsBar
+          messages={messages as Array<{ role?: string; created?: number }>}
+          totalTokens={tokenState?.totalTokens ?? session?.usage?.total_tokens ?? undefined}
+          contextLimit={tokenState?.contextLimit}
+          cost={tokenState?.accumulatedCost ?? session?.accumulated_cost ?? undefined}
+        />
       </MainPanelLayout>
 
       {recipe && isActiveSession && session?.session_type !== 'scheduled' && (

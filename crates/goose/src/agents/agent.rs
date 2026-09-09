@@ -93,6 +93,16 @@ const COMPACTION_PROGRESS_TEXT: &str = "goose is compacting the conversation..."
 const MAX_EMPTY_TURN_RETRIES: u32 = 3;
 const EMPTY_TURN_MESSAGE: &str =
     "The model returned an empty response. Please resend your message to continue.";
+// TB-Software: Auto-Fortsetzung bei am Output-Limit abgeschnittenen Turns
+// (finish_reason "length"). Ohne das stirbt bei langen autonomen Laeufen der
+// ganze Lauf, sobald ein einzelner Turn am Token-Limit abgeschnitten wird.
+// Gedeckelt, damit kein Endlos-Weitergenerieren entsteht; der Zaehler wird bei
+// echtem Fortschritt (Tool-Aufruf) und bei sauberem Turn-Ende zurueckgesetzt.
+const MAX_LENGTH_CONTINUATIONS: u32 = 3;
+const LENGTH_CONTINUATION_MESSAGE: &str =
+    "Deine vorige Antwort wurde am Ausgabe-Token-Limit abgeschnitten. Setze GENAU dort fort, \
+     wo du aufgehoert hast — ohne den bereits geschriebenen Teil zu wiederholen. Ist die \
+     Aufgabe damit erledigt, schliesse sauber ab.";
 
 fn provider_creation_error(error: anyhow::Error, context: impl fmt::Display) -> anyhow::Error {
     let message = format!("{context}: {error}");
@@ -2520,6 +2530,8 @@ impl Agent {
             });
             let mut compaction_attempts = 0;
             let mut empty_turn_retries = 0u32;
+            // TB-Software: Zaehler fuer Auto-Fortsetzung bei Output-Limit-Trunkierung.
+            let mut length_continuations = 0u32;
             let mut retrying_after_empty_turn = false;
             let mut last_assistant_text = String::new();
             let mut turn_total_usage = Usage::default();
@@ -3172,6 +3184,10 @@ impl Agent {
                                 }
 
                                 no_tools_called = false;
+                                // TB-Software: echter Fortschritt (Tool-Aufruf) -> Trunkierungs-
+                                // Zaehler zuruecksetzen, damit der Cap nur aufeinanderfolgende
+                                // Text-Trunkierungen ohne Fortschritt begrenzt.
+                                length_continuations = 0;
                                 // Agent is actively working — re-check goal when it next finishes
                                 goal_check_pending = false;
                             }
@@ -3358,7 +3374,36 @@ impl Agent {
                     empty_turn_retries = 0;
                 }
 
-                if no_tools_called && !exit_chat {
+                // TB-Software: Wurde der Turn am Output-Token-Limit abgeschnitten (finish_reason
+                // "length") UND steht kein vollstaendiger Tool-Call an, dann automatisch
+                // fortsetzen (unsichtbarer Nudge), statt den Lauf hier zu beenden. Der bereits
+                // gestreamte Teil-Text liegt schon in messages_to_add; der aeussere Loop
+                // generiert im naechsten Turn weiter. Gedeckelt via MAX_LENGTH_CONTINUATIONS.
+                let mut length_continue_requested = false;
+                if no_tools_called
+                    && !exit_chat
+                    && provider_reached_output_token_limit
+                    && length_continuations < MAX_LENGTH_CONTINUATIONS
+                {
+                    length_continuations += 1;
+                    length_continue_requested = true;
+                    warn!(
+                        "Output truncated at token limit; auto-continuing ({}/{})",
+                        length_continuations, MAX_LENGTH_CONTINUATIONS
+                    );
+                    let nudge = Message::user()
+                        .with_text(LENGTH_CONTINUATION_MESSAGE)
+                        .with_visibility(false, true);
+                    push_message_with_id(&mut messages_to_add, nudge);
+                    yield AgentEvent::Message(
+                        Message::assistant().with_system_notification(
+                            SystemNotificationType::InlineMessage,
+                            "Antwort war abgeschnitten — setze automatisch fort…".to_string(),
+                        ),
+                    );
+                }
+
+                if no_tools_called && !exit_chat && !length_continue_requested {
                     // Lock, extract state, drop guard before branching — handle_retry_logic
                     // also locks final_output_tool and tokio::sync::Mutex is not reentrant.
                     let final_output = {

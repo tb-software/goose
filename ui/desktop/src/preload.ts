@@ -196,6 +196,9 @@ type ElectronAPI = {
   tbUnwatchFile: () => Promise<boolean>;
   onTbFileChanged: (cb: (path: string) => void) => () => void;
   tbExportChat: (fileName: string, content: string) => Promise<{ ok: boolean; path?: string; error?: string }>;
+  tbEnsureDirectory: (
+    dirPath: string
+  ) => Promise<{ ok: boolean; existed?: boolean; created?: boolean; cancelled?: boolean; error?: string }>;
   launchApp: (app: GooseApp) => Promise<void>;
   refreshApp: (app: GooseApp) => Promise<void>;
   closeApp: (appName: string) => Promise<void>;
@@ -365,6 +368,7 @@ const electronAPI: ElectronAPI = {
   tbUnwatchFile: () => ipcRenderer.invoke('tb-unwatch-file'),
   tbExportChat: (fileName: string, content: string) =>
     ipcRenderer.invoke('tb-export-chat', fileName, content),
+  tbEnsureDirectory: (dirPath: string) => ipcRenderer.invoke('tb-ensure-directory', dirPath),
   onTbFileChanged: (cb: (path: string) => void) => {
     const listener = (_e: unknown, p: string) => cb(p);
     ipcRenderer.on('tb-file-changed', listener);
