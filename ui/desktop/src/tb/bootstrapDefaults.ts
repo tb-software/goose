@@ -11,6 +11,50 @@ import path from 'node:path';
 import os from 'node:os';
 import log from '../utils/logger';
 
+// TB-Software: Die "auto:*"-Routing-Tags des Kilo/LenaX-Setups (keyless ueber den
+// gericom-Proxy, alle cost 0). Der Nutzer waehlt die AUFGABE, das Gateway routet auf
+// das passende freie Fleet-Modell. Erscheinen als kuratierte Modell-Liste im Dropdown.
+// Default bleibt auto:code (siehe GOOSE_DEFAULT_MODEL unten + config.yaml GOOSE_MODEL).
+const TB_AUTO_MODELS = [
+  {
+    name: 'auto:code',
+    provider: 'openai',
+    alias: 'Auto: Code',
+    subtext: 'Coding · Werkzeuge · Reasoning (Qwen) — Standard',
+    context_limit: 262144,
+    reasoning: true,
+  },
+  {
+    name: 'auto:chat',
+    provider: 'openai',
+    alias: 'Auto: Chat',
+    subtext: 'Schneller Chat, ohne Werkzeuge (Mistral)',
+    context_limit: 131072,
+  },
+  {
+    name: 'auto:vision',
+    provider: 'openai',
+    alias: 'Auto: Vision',
+    subtext: 'Bilder/Screenshots erkennen (Mistral VLM)',
+    context_limit: 131072,
+  },
+  {
+    name: 'auto:image',
+    provider: 'openai',
+    alias: 'Auto: Image',
+    subtext: 'Höhere Bildqualität (Qwen)',
+    context_limit: 262144,
+    reasoning: true,
+  },
+  {
+    name: '*',
+    provider: 'openai',
+    alias: 'Auto: * (bestes verfügbares)',
+    subtext: 'Automatische Modellwahl',
+    context_limit: 131072,
+  },
+];
+
 function tbDefaultsDir(): string {
   // extraResource kopiert src/tb-defaults -> resources/tb-defaults (gepackt).
   return app.isPackaged
@@ -22,6 +66,14 @@ export function ensureTbDefaults(): void {
   // (1) Env-Defaults — nur setzen, wenn der Nutzer/Starter nichts vorgegeben hat.
   if (!process.env.OPENAI_API_KEY) process.env.OPENAI_API_KEY = 'none';
   if (!process.env.GOOSE_DISABLE_KEYRING) process.env.GOOSE_DISABLE_KEYRING = 'true';
+
+  // Kuratierte auto:*-Modell-Liste + Default. Wird von getBundledConfig() (main.ts)
+  // in appConfig uebernommen und treibt das Modell-Dropdown. Default: auto:code.
+  if (!process.env.GOOSE_DEFAULT_PROVIDER) process.env.GOOSE_DEFAULT_PROVIDER = 'openai';
+  if (!process.env.GOOSE_DEFAULT_MODEL) process.env.GOOSE_DEFAULT_MODEL = 'auto:code';
+  if (!process.env.GOOSE_PREDEFINED_MODELS) {
+    process.env.GOOSE_PREDEFINED_MODELS = JSON.stringify(TB_AUTO_MODELS);
+  }
 
   try {
     const appData = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
