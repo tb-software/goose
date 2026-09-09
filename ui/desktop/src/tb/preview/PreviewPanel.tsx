@@ -20,8 +20,12 @@ interface ReadResult {
 
 const WIDTH_KEY = 'tb.preview.width';
 const MIN_W = 320;
-const MAX_W = 900;
-const DEFAULT_W = 520;
+const MAX_W = 1200;
+const DEFAULT_W = 560;
+// Im Browser-Modus ist mehr Breite nötig (Webseiten sind quer). Ist das Panel schmaler,
+// wird es beim Öffnen des Browsers FENSTER-PROPORTIONAL aufgezogen (~48 %, gedeckelt),
+// damit der Chat daneben genug Raum behält. Danach bleibt es frei ziehbar.
+const BROWSER_MIN_W = 560;
 
 const LANG: Record<string, string> = {
   ts: 'typescript', tsx: 'tsx', js: 'javascript', jsx: 'jsx', py: 'python', rs: 'rust',
@@ -208,6 +212,19 @@ export const PreviewPanel: React.FC = () => {
     },
     [width]
   );
+
+  // Browser-Modus: schmales Panel beim Öffnen des Browsers auf eine komfortable Breite
+  // aufziehen (Webseiten wie Metrux sind quer). Danach bleibt es frei ziehbar.
+  useEffect(() => {
+    if (preview?.browserUrl) {
+      // ~48 % der Fensterbreite, aber nie schmaler als BROWSER_MIN_W und nie breiter als MAX_W.
+      const target = Math.min(MAX_W, Math.max(BROWSER_MIN_W, Math.round(window.innerWidth * 0.48)));
+      // Nur aufziehen, wenn das Panel aktuell schmaler ist (eine vom Nutzer breiter
+      // gezogene Breite bleibt erhalten).
+      if (width < target) setWidth(target);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preview?.browserUrl]);
 
   useEffect(() => {
     const onMove = (e: MouseEvent) => {

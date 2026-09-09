@@ -1266,8 +1266,11 @@ const createChat = async (
   let mainWindow: BrowserWindow;
   try {
     mainWindowState = windowStateKeeper({
-      defaultWidth: 940,
-      defaultHeight: 800,
+      // TB-Software: grösseres Standardfenster — nebeneinander Chat + breites Vorschau-/
+      // Browser-Panel brauchen Platz. (Greift bei frischem Zustand; die letzte Nutzer-Grösse
+      // wird weiterhin gemerkt.)
+      defaultWidth: 1440,
+      defaultHeight: 920,
     });
 
     mainWindow = new BrowserWindow({
