@@ -36,9 +36,16 @@ function statusLabel(state: ChatState): string {
 export function useTbWindowTitle(
   chatTitle: string | undefined,
   chatState: ChatState,
-  sessionId: string | undefined
+  sessionId: string | undefined,
+  isActive: boolean
 ): void {
   useEffect(() => {
+    // WICHTIG: Es sind mehrere BaseChat-Instanzen gleichzeitig gemountet (ChatSessionsContainer
+    // haelt inaktive Chats nur versteckt). Wuerde jede Instanz document.title setzen, wechselte
+    // der Fenstertitel im Loop. Daher schreibt NUR die aktuell sichtbare Instanz den Titel.
+    if (!isActive) return;
+
+    let last = '';
     const apply = () => {
       const title = (chatTitle && chatTitle.trim()) || 'Neuer Chat';
       let text = `${APP_NAME} — ${title} · ${statusLabel(chatState)}`;
@@ -49,15 +56,15 @@ export function useTbWindowTitle(
       if (busyOthers > 0) {
         text += ` · ${busyOthers} wartend`;
       }
-      document.title = text;
+      if (text !== last) {
+        last = text;
+        document.title = text;
+      }
     };
     apply();
-    // Der Status anderer Chats hat keinen eigenen Event-Kanal hier -> in kleinem
-    // Intervall aktualisieren (guenstig, nur ein Titel-String).
-    const timer = window.setInterval(apply, 1200);
-    return () => {
-      window.clearInterval(timer);
-      document.title = APP_NAME;
-    };
-  }, [chatTitle, chatState, sessionId]);
+    // Nur die aktive Instanz pollt (guenstig) — fuer die "n wartend"-Zahl anderer Chats,
+    // die keinen eigenen Event-Kanal hierher hat.
+    const timer = window.setInterval(apply, 2000);
+    return () => window.clearInterval(timer);
+  }, [chatTitle, chatState, sessionId, isActive]);
 }

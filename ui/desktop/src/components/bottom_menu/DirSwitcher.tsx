@@ -12,6 +12,7 @@ import {
 } from '../ui/dropdown-menu';
 import { toast } from 'react-toastify';
 import { defineMessages, useIntl } from '../../i18n';
+import { MiddleTruncate } from '../../tb/MiddleTruncate';
 
 const i18n = defineMessages({
   failedToUpdateWorkingDir: {
@@ -72,7 +73,9 @@ const DirNameLabel: React.FC<{ dir: string }> = ({ dir }) => {
   return (
     <div className="flex flex-col min-w-0 flex-1">
       <span className="truncate text-sm text-text-primary">{name}</span>
-      {parent && <span className="truncate text-xs text-text-secondary/70">{parent}</span>}
+      {parent && (
+        <MiddleTruncate text={parent} tail={20} className="text-xs text-text-secondary/70" />
+      )}
     </div>
   );
 };
@@ -236,10 +239,12 @@ export const DirSwitcher: React.FC<DirSwitcherProps> = ({
                 onClick={handleDirectoryClick}
                 disabled={isDirectoryChooserOpen}
               >
-                <FolderDot className="mr-1" size={16} />
-                <div className="max-w-[200px] truncate">
-                  {workingDir.replace(/\/+$/, '').split('/').pop() || workingDir}
-                </div>
+                <FolderDot className="mr-1 flex-shrink-0" size={16} />
+                <MiddleTruncate
+                  text={workingDir.replace(/[\\/]+$/, '')}
+                  tail={18}
+                  className="max-w-[34vw] text-xs"
+                />
               </button>
             </DropdownMenuTrigger>
           </TooltipTrigger>

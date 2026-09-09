@@ -8,6 +8,7 @@ import MarkdownContent from '../../components/MarkdownContent';
 import { usePreview } from './PreviewContext';
 import { previewKindFor, baseName, type PreviewKind } from './previewKind';
 import { TbBrowser } from './TbBrowser';
+import { MiddleTruncate } from '../MiddleTruncate';
 
 interface ReadResult {
   ok: boolean;
@@ -118,7 +119,33 @@ const PreviewBody: React.FC<{ path: string; reloadTick: number }> = ({ path, rel
     );
   }
   if (loading) return <Centered>Lädt …</Centered>;
-  if (!res || !res.ok) return <Centered>Fehler: {res?.error ?? 'unbekannt'}</Centered>;
+  if (!res || !res.ok) {
+    const notFound = /ENOENT|no such file|not found/i.test(res?.error ?? '');
+    const parent = path.replace(/[\\/][^\\/]*$/, '');
+    return (
+      <Centered>
+        <div className="flex flex-col items-center gap-2">
+          <FileWarning className="w-6 h-6" />
+          {notFound ? (
+            <>
+              <div>Datei nicht gefunden — evtl. verschoben oder umbenannt.</div>
+              <MiddleTruncate text={path} tail={22} className="text-xs text-text-secondary max-w-full" />
+            </>
+          ) : (
+            <div>Fehler: {res?.error ?? 'unbekannt'}</div>
+          )}
+          {parent && parent !== path && (
+            <button
+              className="underline"
+              onClick={() => void window.electron.openDirectoryInExplorer(parent)}
+            >
+              Ordner öffnen
+            </button>
+          )}
+        </div>
+      </Centered>
+    );
+  }
 
   const dataUrl = `data:${res.mime};base64,${res.data}`;
   const truncatedNote = res.truncated ? (

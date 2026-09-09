@@ -132,7 +132,9 @@ export default function BaseChat({
   );
 
   // TB-Software: Fenstertitel = "TB-Goose — <Chat-Titel> · <Status>[ · n wartend]".
-  useTbWindowTitle(session?.name, chatState, sessionId);
+  // Nur die aktive (sichtbare) Chat-Instanz schreibt den Titel — sonst Loop, da
+  // ChatSessionsContainer mehrere BaseChat gleichzeitig gemountet haelt.
+  useTbWindowTitle(session?.name, chatState, sessionId, isActiveSession);
 
   const handleWorkingDirChange = useCallback(
     async (newDir: string) => {
