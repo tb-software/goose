@@ -1,63 +1,75 @@
 <div align="center">
 
-# goose
+# TB-Goose
 
-_your native open source AI agent — desktop app, CLI, and API — for code, workflows, and everything in between_
+**Laientauglicher Desktop-Client für die TB-Software KI-Cloud (LLMProxy2)** — in normaler
+Sprache Aufgaben stellen, lokale Dateien lesen/schreiben/ausführen und recherchieren, ohne
+Terminal oder Editor-Wissen.
 
-<p align="center">
-  <a href="https://opensource.org/licenses/Apache-2.0"
-    ><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg"></a>
-  <a href="https://discord.gg/n8R5VaWDAn"
-    ><img src="https://img.shields.io/discord/1287729918100246654?logo=discord&logoColor=white&label=Join+Us&color=blueviolet" alt="Discord"></a>
-  <a href="https://github.com/aaif-goose/goose/actions/workflows/ci.yml"
-     ><img src="https://img.shields.io/github/actions/workflow/status/aaif-goose/goose/ci.yml?branch=main" alt="CI"></a>
-  <a href="https://insights.linuxfoundation.org/project/goose"><img src="https://insights.linuxfoundation.org/api/badge/health-score?project=goose"></a>
-  <a href="https://repology.org/project/goose-cli/versions"><img src="https://repology.org/badge/tiny-repos/goose-cli.svg" alt="Packaging status"></a>
-</p>
+<a href="https://opensource.org/licenses/Apache-2.0"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License"></a>
+&nbsp;·&nbsp; Fork von <a href="https://github.com/aaif-goose/goose">Goose</a> (Block / Agentic AI Foundation)
+&nbsp;·&nbsp; Windows-Desktop &nbsp;·&nbsp; native <code>tool_calls</code>
 
-<a href="https://trendshift.io/repositories/25298?utm_source=repository-badge&amp;utm_medium=badge&amp;utm_campaign=badge-repository-25298" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/repositories/25298" alt="aaif-goose%2Fgoose | Trendshift" width="250" height="55"/></a>
+<img src="docs/assets/hero-metrux.png" alt="TB-Goose: Chat mit Metrik-Leiste links, eingebetteter Browser mit Metrux rechts" width="900">
 
 </div>
 
+---
 
-goose is a general-purpose AI agent that runs on your machine. Not just for code — use it for research, writing, automation, data analysis, or anything you need to get done.
+## Warum TB-Goose?
 
-A native desktop app for macOS, Linux, and Windows. A full CLI for terminal workflows. An API to embed it anywhere. Built in Rust for performance and portability.
+Für Entwickler gibt es Editor-/CLI-Agenten. Für **Nicht-Entwickler** fehlte ein einfaches
+Fenster, in dem ein KI-Agent **wirklich** auf der Festplatte arbeitet — Dateien verwalten,
+Code/Texte generieren, rechnen, recherchieren — bedient wie eine normale App. TB-Goose ist
+genau das: eine native Desktop-GUI auf Basis von Goose, angebunden an die interne
+LLMProxy2-Modell-Flotte.
 
-goose works with 15+ providers — Anthropic, OpenAI, Google, Ollama, OpenRouter, Azure, Bedrock, and more. Use API keys or your existing Claude, ChatGPT, or Gemini subscriptions via [ACP](https://goose-docs.ai/docs/guides/acp-providers). Connect to 70+ extensions via the [Model Context Protocol](https://modelcontextprotocol.io/) open standard.
+## Was es besonders macht
 
-goose is part of the [Agentic AI Foundation (AAIF)](https://aaif.io/) at the Linux Foundation.
+- **🧠 Native `tool_calls`, verlässlich.** Über die Route `auto:code` führt der Agent Werkzeuge
+  echt aus — kein Halluzinieren. In einer objektiven 8-Aufgaben-Batterie, **jedes Ergebnis
+  unabhängig auf der Platte geprüft: 8/8** (inkl. echter Python-Rechnung, echtem Web-Abruf und
+  einem selbst geschriebenen **und ausgeführten** Skript).
+- **👁 Vorschau-Panel (rechts).** Markdown, Text, Code (Syntax-Highlight), HTML (Sandbox-iframe),
+  Bilder und Video — mit **Auto-Refresh**, sobald sich die Datei auf der Platte ändert.
 
-# Get started
+  <img src="docs/assets/preview-panel.png" alt="Vorschau-Panel rendert eine HTML-Datei" width="720">
 
-**[Download the desktop app](https://goose-docs.ai/docs/getting-started/installation)** for macOS, Linux, and Windows.
+- **🌐 Eingebetteter, steuerbarer Browser.** Ein echter Browser (Electron-Webview) im rechten
+  Panel — URL-Leiste, Zurück/Vor/Neuladen, fensterproportional breit. (Oben im Hero: das
+  TB-Software-Projekt **Metrux** live im Panel.)
+- **📊 Metrik-Leiste.** Unten laufend die Kennzahlen des Chats: Anfragen, belegter/verbleibender
+  Kontext, Kosten, Sitzungsdauer und ein Token-Verlauf-Sparkline.
 
-Or install the CLI:
+  <img src="docs/assets/metrics-bar.png" alt="Metrik-Leiste mit Tokens, Dauer und Sparkline" width="720">
 
-```bash
-curl -fsSL https://github.com/aaif-goose/goose/releases/download/stable/download_cli.sh | bash
-```
+- **📁 Sicheres Arbeitsverzeichnis.** Pro Chat wählbar; ein neuer Chat schlägt das zuletzt
+  genutzte Verzeichnis vor. Existiert ein getippter Ordner nicht, fragt ein Dialog
+  „Verzeichnis erstellen?". Der Agent ist angehalten, innerhalb dieses Ordners zu arbeiten.
+- **🔎 Projekt-Suche.** Dateinamen in einem Projekt oder über alle Projekte finden; Datei-Pfade
+  im Chat sind klickbar (öffnen im Explorer bzw. in der Vorschau).
+- **🧩 Werkzeug-Modus umschaltbar.** „Nativ" (native `tool_calls`) oder „Kompatibel" (Text-Shim
+  für Modelle ohne native Werkzeuge) — ein Klick in der Bottom-Bar.
+- **🔁 Durchhalte-Schicht.** Persistenz-Instruktionen + **automatische Fortsetzung**, wenn eine
+  Antwort am Ausgabe-Token-Limit abgeschnitten wird — lange autonome Läufe reißen nicht ab.
 
-# Quick links
-- [Quickstart](https://goose-docs.ai/docs/quickstart)
-- [Installation](https://goose-docs.ai/docs/getting-started/installation)
-- [Tutorials](https://goose-docs.ai/docs/category/tutorials)
-- [Documentation](https://goose-docs.ai/docs/category/getting-started)
-- [Governance](https://github.com/aaif-goose/goose/blob/main/GOVERNANCE.md)
-- [Custom Distributions](https://github.com/aaif-goose/goose/blob/main/CUSTOM_DISTROS.md) — build your own goose distro with preconfigured providers, extensions, and branding
+## Weitere Merkmale
 
-## Need help?
-- [Diagnostics & Reporting](https://goose-docs.ai/docs/troubleshooting/diagnostics-and-reporting)
-- [Known Issues](https://goose-docs.ai/docs/troubleshooting/known-issues)
+- **🌍 EU-Telemetrie (opt-in).** Nutzungs-Events gehen an ein eigenes EU-PostHog (DSGVO-nah),
+  nicht an Dritte.
+- **🧪 E2E-Fernsteuerbar.** Elektron-CDP erlaubt automatisierte Tests + GUI-Validierung.
+- **💾 Chat teilen/exportieren.** Ein Chat lässt sich als Datei exportieren und weitergeben.
+- **🌗 Hell/Dunkel/System-Theme.**
 
-# a little goose humor 🪿
+## Grundlage & Lizenz
 
-> Why did the developer choose goose as their AI agent?
-> 
-> Because it always helps them "migrate" their code to production! 🚀
+TB-Goose ist ein Fork von **[Goose](https://github.com/aaif-goose/goose)** (Block →
+Agentic AI Foundation / Linux Foundation), **Apache-2.0**. Der KI-Agenten-Kern (Rust),
+das ACP-Protokoll, Provider, Extensions und die Chat-UI stammen von Goose; TB-Goose ergänzt
+eine anwenderorientierte Schicht (Vorschau, Browser, Suche, Metriken, Verzeichnis-UX),
+Konfigurations-/Robustheits-Anpassungen und das Branding.
 
-# goose around with us
-- [Discord](https://discord.gg/n8R5VaWDAn)
-- [YouTube](https://www.youtube.com/@goose-oss)
-- [LinkedIn](https://www.linkedin.com/company/goose-oss)
-- [Twitter/X](https://x.com/goose_oss)
+Die ursprüngliche Goose-README liegt unter **[README.upstream.md](README.upstream.md)**.
+
+<sub>TB-Software · intern für LLMProxy2 · Screenshots zeigen das TB-Software-Projekt
+<a href="https://www.tb-software.ch/ai/metrux/">Metrux</a>.</sub>
