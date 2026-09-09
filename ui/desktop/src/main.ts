@@ -30,6 +30,7 @@ import { checkBackendStatus } from './backendStatus';
 import { installBackendCertificateVerifiers } from './backendCertificateVerifier';
 import { configureProxy } from './proxy';
 import { startGooseServe } from './gooseServe';
+import { ensureTbDefaults } from './tb/bootstrapDefaults';
 import { getLoginShellPath } from './loginShellPath';
 import { GooseServeLeaseRegistry, type GooseServeLease } from './gooseServeLeaseRegistry';
 import { acpWebSocketUrlFromHttpBase, normalizeAcpHttpBaseUrl } from './acp/url';
@@ -385,6 +386,10 @@ app.on('certificate-error', (event, _webContents, url, _error, certificate, call
   event.preventDefault();
   callback(verifyBackendCertificate(parsed.hostname, certificate.fingerprint));
 });
+
+// TB-Software: Out-of-the-box-Setup (Proxy-Env-Defaults + Standard-Config seeden)
+// so frueh wie moeglich — bevor das Backend (goose.exe) gestartet wird.
+ensureTbDefaults();
 
 app.whenReady().then(() => {
   appConfig.GOOSE_LOCALE = getConfiguredGooseLocale();

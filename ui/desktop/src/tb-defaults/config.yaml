@@ -1,0 +1,50 @@
+# =============================================================================
+#  Goose Client-Profil  ·  Tenant "gericom"  ·  LLMProxy2
+# =============================================================================
+#  Leichtgewichtiges Desktop-/CLI-Frontend fuer Endanwender (Alternative zu
+#  VS Code + LenaX). Goose spricht ausschliesslich den LLMProxy-Endpoint an,
+#  damit Fleet-Routing, Fallback und #routes-Monitoring greifen.
+#
+#  Diese Datei enthaelt NUR nicht-geheime Provider-Einstellungen.
+#  Der (aktuell leere) API-Key und das Deaktivieren des Windows-Keyrings
+#  werden vom Launcher (goose-gericom.cmd) als Umgebungsvariablen gesetzt.
+#
+#  Zielort auf dem Anwender-PC:
+#    %APPDATA%\Block\goose\config\config.yaml
+#  Wird von install.ps1 dorthin kopiert.
+# -----------------------------------------------------------------------------
+
+# --- Provider: eingebauter openai-Provider, auf den Proxy umgebogen ----------
+GOOSE_PROVIDER: openai
+GOOSE_MODEL: "auto:code"          # auto:code -> qwen3.8-27b: liefert zuverlaessig native tool_calls ueber den Proxy.
+                                  # auto:chat -> mistral-small-3.2-24b gibt auf den Serving-Nodes KEINE tool_calls zurueck
+                                  # (verifiziert 2026-09-09). Daher ist auto:code der Default fuer Agent/Tool-Arbeit.
+
+# Endpoint = OPENAI_HOST + "/" + OPENAI_BASE_PATH
+#   -> https://t78.ch/apps/proxy/gericom/jumpserver.ashx/v1/chat/completions
+OPENAI_HOST: "https://t78.ch"
+OPENAI_BASE_PATH: "apps/proxy/gericom/jumpserver.ashx/v1/chat/completions"
+
+# --- Client-Identity-Header (Pflicht-Satz, sonst nur IP im #routes-Monitor) --
+# Format: kommagetrennt, HEADER=WERT. Wird an den lokalen Tenant gesendet.
+OPENAI_CUSTOM_HEADERS: "X-Title=Goose,X-Client=Goose,X-Client-Site=gericom,X-Client-Version=1.50.0,X-Client-OS=Windows"
+
+# --- Verhalten ----------------------------------------------------------------
+# auto = vollautonom (keine Rueckfragen, auch nicht vor Ueberschreiben/Loeschen).
+# Bewusst als Laien-Default (klare Aufgaben ohne staendige Entscheidungen).
+# Sicherere Alternative: smart_approve (fragt nur bei riskanten Aktionen).
+# Umschaltbar in Einstellungen -> Modus.
+GOOSE_MODE: auto
+GOOSE_MAX_TURNS: 1000              # Sicherheitsnetz gegen Endlosschleifen
+# WICHTIG: Output-Token-Budget moderat halten. Ein zu grosser Wert (getestet: 16000)
+# reserviert so viel Output, dass ausgelastete/kleine Serving-Nodes den Request nicht mehr
+# verarbeiten (Node haengt, 0 Tokens; LenaX-Warnung bestaetigt). 4096 laeuft zuverlaessig;
+# abgeschnittene Turns setzt der Agent dank finish_reason:length-Fix automatisch fort.
+GOOSE_MAX_TOKENS: 4096
+GOOSE_DISABLE_KEYRING: true        # Windows: Secrets ueber Env statt Keyring
+GOOSE_TELEMETRY_ENABLED: true      # Nutzungs-Events an EIGENES EU-PostHog; unterdrueckt Consent-Dialog
+# Toolshim AUS: native tool_calls (auto:code -> qwen3.8-27b) sind der zuverlaessige Weg.
+# Toolshim injizierte Tool-Beschreibungen nur in den Prompt und parste Text -> unzuverlaessig
+# bei Shell/Compute (siehe T4). Der UI-Toggle bleibt als Fallback fuer nicht-tool-faehige Modelle.
+GOOSE_TOOLSHIM: false
+GOOSE_TOOLSHIM_OLLAMA_MODEL: "qwen2.5:3b"

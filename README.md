@@ -19,6 +19,15 @@ Ergebnis (<a href="https://www.tb-software.ch/ai/metrux/">Metrux</a>) live im ei
 
 ---
 
+<div align="center">
+
+<img src="docs/assets/showcase-dashboard-preview.jpg" alt="TB-Goose generiert ein Budget-Dashboard und zeigt es live im Vorschau-Panel" width="920">
+
+<sub>In natürlicher Sprache beauftragt, generiert der Agent ein komplettes Dashboard
+(HTML/CSS) und zeigt das Ergebnis sofort rechts in der Live-Vorschau — kein Editor, kein Terminal.</sub>
+
+</div>
+
 ## Warum TB-Goose?
 
 Für Entwickler gibt es Editor-/CLI-Agenten. Für **Nicht-Entwickler** fehlte ein einfaches
