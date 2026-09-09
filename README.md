@@ -10,7 +10,7 @@ Terminal oder Editor-Wissen.
 &nbsp;·&nbsp; Fork von <a href="https://github.com/aaif-goose/goose">Goose</a> (Block / Agentic AI Foundation)
 &nbsp;·&nbsp; Windows-Desktop &nbsp;·&nbsp; native <code>tool_calls</code>
 
-<img src="docs/assets/hero-showcase.png" alt="TB-Goose: KI-Session zum Bau eines Audio-Visualizers links, eingebetteter Browser mit Metrux live rechts" width="920">
+<img src="docs/assets/hero-showcase.jpg" alt="TB-Goose: KI-Session zum Bau eines Audio-Visualizers links, eingebetteter Browser mit Metrux live rechts" width="920">
 
 <sub>Links: eine KI-Session zum Feature-Design eines Audio-Visualizers · rechts: das
 Ergebnis (<a href="https://www.tb-software.ch/ai/metrux/">Metrux</a>) live im eingebetteten Browser.</sub>
