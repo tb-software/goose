@@ -44,8 +44,12 @@ export const MiddleTruncate: React.FC<MiddleTruncateProps> = ({
   const head = text.slice(0, cut);
   const end = text.slice(cut);
   return (
+    // Kein min-w-0 auf dem AEUSSEREN Span: so schlaegt die feste Breite des Endes
+    // (flex-shrink-0) als Mindestbreite nach oben durch — die Anzeige kann nie ganz
+    // auf 0 kollabieren, das Ende (Ordner-/Dateiname) bleibt immer sichtbar. Nur der
+    // KOPF schrumpft und bekommt das Ellipsis.
     <span
-      className={`inline-flex min-w-0 align-bottom ${className ?? ''}`}
+      className={`inline-flex align-bottom ${className ?? ''}`}
       title={tooltip}
       style={{ whiteSpace: 'nowrap' }}
     >

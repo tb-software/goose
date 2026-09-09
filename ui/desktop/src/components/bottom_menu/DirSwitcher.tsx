@@ -235,7 +235,7 @@ export const DirSwitcher: React.FC<DirSwitcherProps> = ({
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>
               <button
-                className={`z-[100] ${isDirectoryChooserOpen ? 'opacity-50' : 'hover:cursor-pointer hover:text-text-primary'} text-text-primary/70 text-xs flex items-center transition-colors pl-1 [&>svg]:size-4 ${className}`}
+                className={`z-[100] ${isDirectoryChooserOpen ? 'opacity-50' : 'hover:cursor-pointer hover:text-text-primary'} text-text-primary/70 text-xs flex items-center shrink max-w-[45%] transition-colors pl-1 [&>svg]:size-4 ${className}`}
                 onClick={handleDirectoryClick}
                 disabled={isDirectoryChooserOpen}
               >
@@ -243,7 +243,7 @@ export const DirSwitcher: React.FC<DirSwitcherProps> = ({
                 <MiddleTruncate
                   text={workingDir.replace(/[\\/]+$/, '')}
                   tail={18}
-                  className="max-w-[34vw] text-xs"
+                  className="max-w-full text-xs"
                 />
               </button>
             </DropdownMenuTrigger>

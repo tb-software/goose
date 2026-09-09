@@ -347,12 +347,19 @@ export default function ChatInput({
   // Only the model selector, mic, and send button remain visible.
   const bottomBarRef = useRef<HTMLDivElement>(null);
   const [isBottomBarNarrow, setIsBottomBarNarrow] = useState(false);
+  // TB-Software: Das Arbeitsverzeichnis braucht mehr Platz als die kleinen rechten
+  // Controls. Ist die Leiste zu schmal (z. B. bei offenem Vorschau-/Browser-Panel),
+  // wuerde der Pfad die Zeile sprengen -> dann Pfad + Git-Indikator ausblenden
+  // (der Titelbalken/Tooltip zeigt den Ordner weiterhin). Ist Platz da, wird der
+  // Pfad mittig gekuerzt (MiddleTruncate).
+  const [isDirHidden, setIsDirHidden] = useState(false);
   useEffect(() => {
     const el = bottomBarRef.current;
     if (!el) return;
     const observer = new ResizeObserver((entries) => {
       const width = entries[0]?.contentRect.width ?? 0;
       setIsBottomBarNarrow(width < 480);
+      setIsDirHidden(width < 700);
     });
     observer.observe(el);
     return () => observer.disconnect();
@@ -1710,8 +1717,8 @@ export default function ChatInput({
           </div>
         </Tooltip>
 
-        {/* Left: working directory (leaf folder name only) */}
-        {!isBottomBarNarrow && (
+        {/* Left: working directory (middle-truncated; hidden when the bar is too narrow) */}
+        {!isDirHidden && (
           <DirSwitcher
             className=""
             sessionId={sessionId ?? undefined}
@@ -1723,7 +1730,7 @@ export default function ChatInput({
           />
         )}
 
-        {!isBottomBarNarrow && currentWorkingDir && (
+        {!isDirHidden && currentWorkingDir && (
           <GitBranchIndicator dir={currentWorkingDir} className="ml-1" />
         )}
 
