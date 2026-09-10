@@ -58,6 +58,7 @@ if (process.env.APPLE_TEAM_ID) {
 }
 
 module.exports = {
+  outDir: process.env.FORGE_OUT_DIR || 'out',
   packagerConfig: cfg,
   rebuildConfig: {},
   publishers: [

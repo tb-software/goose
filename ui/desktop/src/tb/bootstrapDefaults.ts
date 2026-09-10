@@ -147,19 +147,27 @@ function discoverLenaxDbMcp(): LenaxDbLocation | null {
   return { exe, config: fs.existsSync(cfg) ? cfg : null };
 }
 
-// Der Config-Pfad MUSS als Flag `--config <pfad>` übergeben werden. Ein positionaler
-// Pfad wird vom lenaxdb-mcp-Binary ignoriert -> es startet mit Default-Config (0 Quellen).
+// Config-Pfad POSITIONAL übergeben (kanonisch, code-verifiziert in Program.cs:
+//   configPath = args.FirstOrDefault(a => !a.StartsWith("--"))).
+// `--config <pfad>` (mit Leerzeichen) funktioniert ebenfalls, ist aber unnötig;
+// `--config=<pfad>` (mit `=`) beginnt mit `--` und würde übersprungen -> Default-Config (0 Quellen).
 function lenaxArgs(configPath: string | null): string[] {
-  return configPath ? ['--config', configPath] : [];
+  return configPath ? [configPath] : [];
+}
+
+// Erkennt einen kaputt konfigurierten Config-Args-Eintrag: die `--config=<pfad>`-Form (mit `=`)
+// wird vom Binary übersprungen -> Default-Config. Solche Einträge werden beim Self-Heal korrigiert.
+function hasBrokenConfigArg(args: unknown): boolean {
+  return Array.isArray(args) && args.some((a) => typeof a === 'string' && a.startsWith('--config='));
 }
 
 // Findet einen vorhandenen LenaX-DB-Extension-Eintrag (per Key oder per Name).
 function findLenaxEntry(
   parsed: unknown
-): { key: string; entry: { cmd?: string; timeout?: number } } | null {
+): { key: string; entry: { cmd?: string; timeout?: number; args?: unknown } } | null {
   const exts = (
     parsed as {
-      extensions?: Record<string, { name?: string; cmd?: string; timeout?: number }>;
+      extensions?: Record<string, { name?: string; cmd?: string; timeout?: number; args?: unknown }>;
     }
   )?.extensions;
   if (!exts || typeof exts !== 'object') return null;
@@ -187,15 +195,23 @@ export function ensureLenaxDbExtension(cfgDir: string): void {
       // und wir eine gültige exe gefunden haben. Sonst Nutzer-Entscheidung respektieren.
       const cmd = String(existing.entry.cmd ?? '').trim();
       const cmdBroken = !cmd || !fs.existsSync(cmd);
-      if (found && cmdBroken) {
+      const argsBroken = hasBrokenConfigArg(existing.entry.args);
+      if (found && (cmdBroken || argsBroken)) {
         const doc = yaml.parseDocument(raw);
-        doc.setIn(['extensions', existing.key, 'cmd'], found.exe);
-        doc.setIn(['extensions', existing.key, 'args'], lenaxArgs(found.config));
+        if (cmdBroken) {
+          doc.setIn(['extensions', existing.key, 'cmd'], found.exe);
+          doc.setIn(['extensions', existing.key, 'args'], lenaxArgs(found.config));
+        } else if (argsBroken) {
+          // cmd ist ok, nur die `--config=`-Args-Form korrigieren (auf positional).
+          doc.setIn(['extensions', existing.key, 'args'], lenaxArgs(found.config));
+        }
         if (existing.entry.timeout == null) {
           doc.setIn(['extensions', existing.key, 'timeout'], 300);
         }
         fs.writeFileSync(cfgFile, doc.toString());
-        log.info(`[TB] LenaX-DB MCP-Eintrag repariert (${existing.key}) -> ${found.exe}`);
+        log.info(
+          `[TB] LenaX-DB MCP-Eintrag repariert (${existing.key}; cmdBroken=${cmdBroken}, argsBroken=${argsBroken})`
+        );
       }
       return;
     }

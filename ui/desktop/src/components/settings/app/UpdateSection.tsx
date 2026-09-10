@@ -51,6 +51,10 @@ const i18n = defineMessages({
     id: 'updateSection.installAndRestart',
     defaultMessage: 'Install & Restart',
   },
+  installing: {
+    id: 'updateSection.installing',
+    defaultMessage: 'Installing update, restarting shortly...',
+  },
   checking: {
     id: 'updateSection.checking',
     defaultMessage: 'Checking for updates...',
@@ -133,6 +137,21 @@ export default function UpdateSection() {
           ...prev,
           isUpdateAvailable: state.updateAvailable,
           latestVersion: state.latestVersion,
+        }));
+      }
+    });
+
+    // TB-Software: Beim (Neu-)Öffnen des App-Tabs den „installationsbereit"-Zustand wiederherstellen,
+    // falls die Version im Hauptprozess bereits vollständig heruntergeladen ist. Sonst würde der
+    // Install-Button nach einem Tab-Wechsel verschwinden.
+    window.electron.getDownloadReadyState?.().then((ready) => {
+      if (ready?.ready) {
+        setProgress(100);
+        setUpdateStatus((prev) => (prev === 'idle' ? 'ready' : prev));
+        setUpdateInfo((prev) => ({
+          ...prev,
+          isUpdateAvailable: true,
+          latestVersion: ready.version ?? prev.latestVersion,
         }));
       }
     });
@@ -243,8 +262,23 @@ export default function UpdateSection() {
     }
   };
 
-  const installUpdate = () => {
-    window.electron.installUpdate();
+  const installUpdate = async () => {
+    setUpdateStatus('installing');
+    try {
+      const result = await window.electron.installUpdate();
+      if (result && result.error) {
+        throw new Error(result.error);
+      }
+      // Erfolg: der Hauptprozess startet den Swap und beendet die App in Kürze — hier bleibt der
+      // „installing"-Zustand stehen, bis der Neustart greift.
+    } catch (error) {
+      setUpdateInfo((prev) => ({
+        ...prev,
+        error: errorMessage(error, 'Failed to install update'),
+      }));
+      setUpdateStatus('error');
+      setTimeout(() => setUpdateStatus('ready'), 6000);
+    }
   };
 
   const downloadUpdate = async () => {
@@ -279,6 +313,8 @@ export default function UpdateSection() {
         return intl.formatMessage(i18n.downloadingProgress, { percent: Math.round(progress) });
       case 'ready':
         return intl.formatMessage(i18n.downloadReady);
+      case 'installing':
+        return intl.formatMessage(i18n.installing);
       case 'success':
         return updateInfo.isUpdateAvailable === false
           ? intl.formatMessage(i18n.latestVersion)
@@ -297,6 +333,7 @@ export default function UpdateSection() {
     switch (updateStatus) {
       case 'checking':
       case 'downloading':
+      case 'installing':
         return <Loader2 className="w-4 h-4 animate-spin" />;
       case 'success':
         return <CheckCircle className="w-4 h-4 text-green-500" />;
@@ -352,8 +389,16 @@ export default function UpdateSection() {
               </Button>
             )}
 
-          {updateStatus === 'ready' && (
-            <Button onClick={installUpdate} variant="default" size="sm">
+          {(updateStatus === 'ready' || updateStatus === 'installing') && (
+            <Button
+              onClick={installUpdate}
+              variant="default"
+              size="sm"
+              disabled={updateStatus === 'installing'}
+            >
+              {updateStatus === 'installing' && (
+                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+              )}
               {intl.formatMessage(i18n.installAndRestart)}
             </Button>
           )}

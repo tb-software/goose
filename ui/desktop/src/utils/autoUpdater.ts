@@ -54,6 +54,10 @@ let autoDownloadDisabled = false;
 let lastCompletedDownload: { version: string; downloadPath: string; sha256Url?: string } | null =
   null;
 
+// TB-Software: verhindert, dass sich mehrere Checks (Start + „Nach Updates suchen" + App-Tab)
+// gegenseitig überlappende Downloads derselben Version anstoßen.
+let downloadInProgress = false;
+
 async function fileExists(p: string): Promise<boolean> {
   try {
     await fs.access(p);
@@ -300,55 +304,84 @@ export function registerUpdateIpcHandlers() {
     }
   });
 
+  // TB-Software: Der Handler liefert IMMER ein { success, error }-Ergebnis zurück (früher warf er
+  // Exceptions, die im Renderer verschluckt wurden -> „Installieren tut nichts"). Zusätzlich fällt
+  // er auf den zuletzt vollständig geladenen Download zurück, falls githubUpdateInfo.downloadPath
+  // durch einen zwischenzeitlichen Re-Check verloren ging.
   ipcMain.handle('install-update', async () => {
-    if (isUsingGitHubFallback) {
-      log.info('Installing update from GitHub fallback...');
+    try {
+      if (isUsingGitHubFallback) {
+        log.info('Installing update from GitHub/t78 fallback...');
 
-      const downloadPath = githubUpdateInfo.downloadPath;
-      if (!downloadPath) {
-        throw new Error('Update file path not found. Please download the update first.');
-      }
+        let downloadPath = githubUpdateInfo.downloadPath;
+        let sha256Url = githubUpdateInfo.sha256Url;
 
-      try {
-        await fs.access(downloadPath);
-      } catch {
-        throw new Error('Update file not found. Please download the update first.');
-      }
-
-      // TB-Software: Integrität des heruntergeladenen Pakets gegen den t78-SHA-256-Sidecar
-      // prüfen (Schutz vor manipuliertem Paket), bevor es installiert wird.
-      if (githubUpdateInfo.sha256Url) {
-        const ok = await verifyT78Sha256(downloadPath, githubUpdateInfo.sha256Url);
-        if (!ok) {
-          const msg = 'Integritätsprüfung (SHA-256) des Updates fehlgeschlagen — Installation abgebrochen.';
-          log.error(msg);
-          sendStatusToWindow('error', msg);
-          throw new Error(msg);
+        // Pfad verloren (Re-Check hat githubUpdateInfo zurückgesetzt)? -> idempotenten Cache nutzen.
+        if (
+          (!downloadPath || !(await fileExists(downloadPath))) &&
+          lastCompletedDownload &&
+          (await fileExists(lastCompletedDownload.downloadPath))
+        ) {
+          downloadPath = lastCompletedDownload.downloadPath;
+          sha256Url = sha256Url ?? lastCompletedDownload.sha256Url;
+          githubUpdateInfo.downloadPath = downloadPath;
+          log.info(`install-update: fell back to cached download at ${downloadPath}`);
         }
+
+        if (!downloadPath || !(await fileExists(downloadPath))) {
+          const msg =
+            'Update-Datei nicht gefunden. Bitte zuerst das Update herunterladen (Nach Updates suchen).';
+          log.error(`install-update: ${msg} (downloadPath=${downloadPath ?? 'undefined'})`);
+          sendStatusToWindow('error', msg);
+          return { success: false, error: msg };
+        }
+
+        // TB-Software: Integrität des heruntergeladenen Pakets gegen den t78-SHA-256-Sidecar
+        // prüfen (Schutz vor manipuliertem Paket), bevor es installiert wird.
+        if (sha256Url) {
+          const ok = await verifyT78Sha256(downloadPath, sha256Url);
+          if (!ok) {
+            const msg =
+              'Integritätsprüfung (SHA-256) des Updates fehlgeschlagen — Installation abgebrochen.';
+            log.error(msg);
+            sendStatusToWindow('error', msg);
+            return { success: false, error: msg };
+          }
+        }
+
+        trackUpdateInstallInitiated(
+          githubUpdateInfo.latestVersion || lastCompletedDownload?.version || 'unknown',
+          'github-fallback',
+          'auto_swap_and_relaunch'
+        );
+
+        const result = await githubUpdater.installUpdate(downloadPath);
+        if (!result.success) {
+          log.error('Error installing GitHub update:', result.error);
+          sendStatusToWindow('error', result.error || 'Installation fehlgeschlagen.');
+          return { success: false, error: result.error || 'Failed to install update' };
+        }
+
+        // Erst antworten, dann beenden: 400 ms Verzögerung, damit das IPC-Ergebnis den Renderer
+        // erreicht, bevor der Prozess endet (sonst „hängt" der await im UI).
+        log.info('Swap script launched — quitting app in 400ms so the swap can complete...');
+        setTimeout(() => app.quit(), 400);
+        return { success: true, error: null };
+      } else {
+        // Use electron-updater's built-in install
+        trackUpdateInstallInitiated(
+          lastUpdateState?.latestVersion || 'unknown',
+          'electron-updater',
+          'quit_and_install'
+        );
+        setTimeout(() => autoUpdater.quitAndInstall(false, true), 0);
+        return { success: true, error: null };
       }
-
-      trackUpdateInstallInitiated(
-        githubUpdateInfo.latestVersion || 'unknown',
-        'github-fallback',
-        'auto_swap_and_relaunch'
-      );
-
-      const result = await githubUpdater.installUpdate(downloadPath);
-      if (!result.success) {
-        log.error('Error installing GitHub update:', result.error);
-        throw new Error(result.error || 'Failed to install update');
-      }
-
-      log.info('Quitting app so the update swap can complete...');
-      setTimeout(() => app.quit(), 0);
-    } else {
-      // Use electron-updater's built-in install
-      trackUpdateInstallInitiated(
-        lastUpdateState?.latestVersion || 'unknown',
-        'electron-updater',
-        'quit_and_install'
-      );
-      autoUpdater.quitAndInstall(false, true);
+    } catch (error) {
+      const msg = errorMessage(error, 'Unknown error');
+      log.error('install-update handler failed:', error);
+      sendStatusToWindow('error', msg);
+      return { success: false, error: msg };
     }
   });
 
@@ -358,6 +391,16 @@ export function registerUpdateIpcHandlers() {
 
   ipcMain.handle('get-update-state', () => {
     return lastUpdateState;
+  });
+
+  // TB-Software: Ist eine Version bereits vollständig heruntergeladen und die Datei noch vorhanden?
+  // Der App-Tab stellt damit beim (Neu-)Öffnen den „installationsbereit"-Zustand wieder her, statt
+  // erneut herunterzuladen oder den Install-Button zu verlieren.
+  ipcMain.handle('get-download-ready-state', async () => {
+    if (lastCompletedDownload && (await fileExists(lastCompletedDownload.downloadPath))) {
+      return { ready: true, version: lastCompletedDownload.version };
+    }
+    return { ready: false };
   });
 
   ipcMain.handle('is-using-github-fallback', () => {
@@ -796,6 +839,23 @@ async function githubAutoDownload(
   latestVersion: string,
   contextLabel = ''
 ): Promise<void> {
+  // TB-Software: Läuft bereits ein Download (oder liegt die Version fertig vor)? Dann nicht erneut
+  // starten — verhindert das „Neu-Herunterladen" bei überlappenden Checks.
+  if (downloadInProgress) {
+    log.info(`Download already in progress — skipping duplicate download (${contextLabel})`);
+    return;
+  }
+  if (
+    lastCompletedDownload &&
+    lastCompletedDownload.version === latestVersion &&
+    (await fileExists(lastCompletedDownload.downloadPath))
+  ) {
+    githubUpdateInfo.downloadPath = lastCompletedDownload.downloadPath;
+    sendStatusToWindow('update-downloaded', { version: latestVersion });
+    return;
+  }
+
+  downloadInProgress = true;
   // Reset progress tracking for new download
   lastReportedProgress = 0;
   trackUpdateDownloadStarted(latestVersion, 'github-fallback');
@@ -842,6 +902,8 @@ async function githubAutoDownload(
       `Error during GitHub auto-download${contextLabel ? ` (${contextLabel})` : ''}:`,
       downloadError
     );
+  } finally {
+    downloadInProgress = false;
   }
 }
 

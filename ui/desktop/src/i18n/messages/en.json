@@ -4669,5 +4669,9 @@
   },
   "userMessage.removeImageFromEdit": {
     "defaultMessage": "Remove image from message"
+  },
+  "updateSection.installing": {
+    "defaultMessage": "Installing update, restarting shortly...",
+    "description": "shown while the update is installing"
   }
 }

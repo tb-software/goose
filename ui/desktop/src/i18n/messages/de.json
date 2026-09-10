@@ -4669,5 +4669,9 @@
   },
   "providerConfigurationModal.deviceCodeVisit": {
     "defaultMessage": "Besuchen Sie"
+  },
+  "updateSection.installing": {
+    "defaultMessage": "Update wird installiert, Neustart folgt …",
+    "description": "shown while the update is installing"
   }
 }
