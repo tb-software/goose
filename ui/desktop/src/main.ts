@@ -31,6 +31,12 @@ import { installBackendCertificateVerifiers } from './backendCertificateVerifier
 import { configureProxy } from './proxy';
 import { startGooseServe } from './gooseServe';
 import { ensureTbDefaults } from './tb/bootstrapDefaults';
+import {
+  backupConfigOnExit,
+  resetToFactory,
+  restoreFromBackup,
+  type TbActionResult,
+} from './tb/configBackup';
 import { getLoginShellPath } from './loginShellPath';
 import { GooseServeLeaseRegistry, type GooseServeLease } from './gooseServeLeaseRegistry';
 import { acpWebSocketUrlFromHttpBase, normalizeAcpHttpBaseUrl } from './acp/url';
@@ -145,6 +151,28 @@ const MENU_TRANSLATIONS_ZH_CN: Record<string, string> = {
 
 function detectMenuLocale(): string {
   return getConfiguredGooseLocale() ?? 'en';
+}
+
+// TB-Software: nach einem Config-Reset/Restore Ergebnis melden und Neustart anbieten
+// (die Änderung an config.yaml wird erst nach Neustart vom Backend gelesen).
+function tbOfferRestart(res: TbActionResult): void {
+  if (!res.ok) {
+    dialog.showMessageBoxSync({ type: 'error', buttons: ['OK'], title: 'TB-Goose', message: res.message });
+    return;
+  }
+  const r = dialog.showMessageBoxSync({
+    type: 'info',
+    buttons: ['Jetzt neu starten', 'Später'],
+    defaultId: 0,
+    cancelId: 1,
+    title: 'TB-Goose',
+    message: res.message,
+    detail: 'Die Änderung wird erst nach einem Neustart wirksam.',
+  });
+  if (r === 0) {
+    app.relaunch();
+    app.quit();
+  }
 }
 
 function menuT(label: string): string {
@@ -2713,6 +2741,38 @@ async function appMain() {
         })
       );
     }
+
+    // TB-Software: Konfiguration verwalten — Werksreset (unsere Defaults inkl. lenax-db MCP)
+    // und Wiederherstellung aus dem beim Beenden erstellten Backup.
+    fileMenu.submenu.append(new MenuItem({ type: 'separator' }));
+    fileMenu.submenu.append(
+      new MenuItem({
+        label: menuT('Auf TB-Werkseinstellungen zurücksetzen'),
+        click() {
+          const confirm = dialog.showMessageBoxSync({
+            type: 'warning',
+            buttons: ['Zurücksetzen', 'Abbrechen'],
+            defaultId: 1,
+            cancelId: 1,
+            title: 'TB-Werkseinstellungen',
+            message: 'Konfiguration auf TB-Werkseinstellungen zurücksetzen?',
+            detail:
+              'Setzt Provider (tb-software/Proxy), Modell auto:code, auto-Modus und die lenax-db-MCP. ' +
+              'Die aktuelle Konfiguration wird zuvor gesichert.',
+          });
+          if (confirm !== 0) return;
+          tbOfferRestart(resetToFactory());
+        },
+      })
+    );
+    fileMenu.submenu.append(
+      new MenuItem({
+        label: menuT('Konfiguration aus Backup wiederherstellen'),
+        click() {
+          tbOfferRestart(restoreFromBackup());
+        },
+      })
+    );
   }
 
   if (menu) {
@@ -3389,6 +3449,9 @@ async function getAllowList(): Promise<string[]> {
 }
 
 app.on('will-quit', async () => {
+  // TB-Software: funktionierende Config beim Beenden rollierend sichern (nur wenn gültig+groß genug).
+  backupConfigOnExit();
+
   const gooseServeLeaseCount = gooseServeLeases.activeLeaseCount();
   if (gooseServeLeaseCount > 0) {
     log.info(`App quitting, cleaning up ${gooseServeLeaseCount} backend lease(s)`);

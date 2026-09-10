@@ -56,12 +56,17 @@ const TB_AUTO_MODELS = [
   },
 ];
 
-function tbDefaultsDir(): string {
+export function tbDefaultsDir(): string {
   // extraResource kopiert src/tb-defaults -> resources/tb-defaults (gepackt).
   return app.isPackaged
     ? path.join(process.resourcesPath, 'tb-defaults')
     : path.join(app.getAppPath(), 'src', 'tb-defaults');
 }
+
+// Fallback-Pfad, wenn keine lenaxdb-mcp.exe gefunden wird (Nutzer-Auswahl: Auto-Erkennung +
+// Fallback). Beim Werksreset wird dieser Platzhalter (enabled) eingetragen, damit die
+// Extension sichtbar/aktiv ist; der Nutzer korrigiert den Pfad ggf. in den Einstellungen.
+const LENAXDB_FALLBACK_EXE = 'C:\\_AI\\Applications\\LenaX-DB\\mcp\\lenaxdb-mcp.exe';
 
 export function ensureTbDefaults(): void {
   // (1) Env-Defaults — nur setzen, wenn der Nutzer/Starter nichts vorgegeben hat.
@@ -180,7 +185,10 @@ function findLenaxEntry(
   return null;
 }
 
-export function ensureLenaxDbExtension(cfgDir: string): void {
+export function ensureLenaxDbExtension(
+  cfgDir: string,
+  opts: { writePlaceholderIfMissing?: boolean } = {}
+): void {
   try {
     const cfgFile = path.join(cfgDir, 'config.yaml');
     if (!fs.existsSync(cfgFile)) return; // Config wird zuvor geseedet; ohne sie nichts zu tun.
@@ -216,10 +224,15 @@ export function ensureLenaxDbExtension(cfgDir: string): void {
       return;
     }
 
-    if (!found) {
+    if (!found && !opts.writePlaceholderIfMissing) {
       log.info('[TB] LenaX-DB MCP nicht gefunden — in den Einstellungen manuell konfigurierbar.');
       return;
     }
+
+    // Gefunden -> echten Pfad; sonst (nur beim Werksreset) Platzhalter-Pfad, damit die Extension
+    // aktiv/sichtbar ist (Nutzer-Auswahl: Auto-Erkennung + Fallback).
+    const exe = found ? found.exe : LENAXDB_FALLBACK_EXE;
+    const cfg = found ? found.config : null;
 
     // Neuen Eintrag anfügen, Kommentare/Reihenfolge der bestehenden Config erhalten.
     const doc = yaml.parseDocument(raw);
@@ -228,8 +241,8 @@ export function ensureLenaxDbExtension(cfgDir: string): void {
       type: 'stdio',
       name: 'LenaX-DB',
       description: 'LenaX-DB — lokale Wissens-/RAG-Datenbank (Dateisystem-Index)',
-      cmd: found.exe,
-      args: lenaxArgs(found.config),
+      cmd: exe,
+      args: lenaxArgs(cfg),
       // Startaufbau des Embedders (ONNX) kann einige Sekunden dauern -> großzügig.
       timeout: 300,
       env_keys: [],
@@ -237,7 +250,7 @@ export function ensureLenaxDbExtension(cfgDir: string): void {
     });
     fs.writeFileSync(cfgFile, doc.toString());
     log.info(
-      `[TB] LenaX-DB MCP standardmäßig verbunden: ${found.exe}${found.config ? ' (--config ' + found.config + ')' : ' (Default-Config)'}`
+      `[TB] LenaX-DB MCP eingetragen: ${exe}${found ? '' : ' (Platzhalter — Pfad ggf. anpassen)'}${cfg ? ' (--config ' + cfg + ')' : ' (Default-Config)'}`
     );
   } catch (e) {
     log.error('[TB] LenaX-DB-Extension-Seeding fehlgeschlagen', e);
