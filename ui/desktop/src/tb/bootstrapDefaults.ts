@@ -9,6 +9,7 @@ import { app } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import * as yaml from 'yaml';
 import log from '../utils/logger';
 
 // TB-Software: Die "auto:*"-Routing-Tags des Kilo/LenaX-Setups (keyless ueber den
@@ -99,7 +100,101 @@ export function ensureTbDefaults(): void {
     if (fs.existsSync(hintsSrc) && !fs.existsSync(hintsDst)) {
       fs.copyFileSync(hintsSrc, hintsDst);
     }
+
+    // LenaX-DB MCP standardmäßig verbinden (Pfad automatisch suchen; nicht gefunden ->
+    // in den Einstellungen manuell konfigurierbar).
+    ensureLenaxDbExtension(cfgDir);
   } catch (e) {
     log.error('[TB] ensureTbDefaults fehlgeschlagen', e);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// LenaX-DB MCP-Anbindung (STDIO) — standardmäßig verbinden, mit Auto-Discovery.
+// ---------------------------------------------------------------------------
+
+interface LenaxDbLocation {
+  exe: string;
+  config: string | null;
+}
+
+// Sucht die lenaxdb-mcp.exe an den üblichen Installationsorten. Override per
+// Umgebungsvariable LENAXDB_MCP_EXE (voller Pfad zur exe).
+function discoverLenaxDbMcp(): LenaxDbLocation | null {
+  const localAppData =
+    process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
+  const programFiles = process.env.ProgramFiles || 'C:\\Program Files';
+
+  const candidates = [
+    process.env.LENAXDB_MCP_EXE,
+    'C:\\_AI\\Applications\\LenaX-DB\\mcp\\lenaxdb-mcp.exe',
+    path.join(localAppData, 'Programs', 'LenaX-DB', 'mcp', 'lenaxdb-mcp.exe'),
+    path.join(localAppData, 'LenaX-DB', 'mcp', 'lenaxdb-mcp.exe'),
+    path.join(programFiles, 'LenaX-DB', 'mcp', 'lenaxdb-mcp.exe'),
+  ].filter((c): c is string => !!c);
+
+  const exe = candidates.find((c) => {
+    try {
+      return fs.existsSync(c) && fs.statSync(c).isFile();
+    } catch {
+      return false;
+    }
+  });
+  if (!exe) return null;
+
+  // Config-Pfad (gemeinsam mit dem Cockpit). Fehlt sie, startet die MCP mit Default-Config.
+  const cfg = path.join(localAppData, 'LenaXDB', 'config.json');
+  return { exe, config: fs.existsSync(cfg) ? cfg : null };
+}
+
+// Prüft, ob in der Goose-Config bereits eine LenaX-DB-Extension existiert (Key oder Name).
+function hasLenaxExtension(parsed: unknown): boolean {
+  const exts = (parsed as { extensions?: Record<string, { name?: string }> })?.extensions;
+  if (!exts || typeof exts !== 'object') return false;
+  if (Object.prototype.hasOwnProperty.call(exts, 'lenax_db')) return true;
+  return Object.values(exts).some(
+    (e) => typeof e?.name === 'string' && /lenax/i.test(e.name)
+  );
+}
+
+export function ensureLenaxDbExtension(cfgDir: string): void {
+  try {
+    const cfgFile = path.join(cfgDir, 'config.yaml');
+    if (!fs.existsSync(cfgFile)) return; // Config wird zuvor geseedet; ohne sie nichts zu tun.
+
+    const raw = fs.readFileSync(cfgFile, 'utf8');
+    const parsed = yaml.parse(raw) ?? {};
+
+    // Bereits vorhanden (auch deaktiviert) -> Nutzer-Entscheidung respektieren.
+    if (hasLenaxExtension(parsed)) return;
+
+    const found = discoverLenaxDbMcp();
+    if (!found) {
+      log.info(
+        '[TB] LenaX-DB MCP nicht gefunden — in den Einstellungen manuell konfigurierbar.'
+      );
+      return;
+    }
+
+    // Eintrag anfügen, Kommentare/Reihenfolge der bestehenden Config erhalten.
+    const doc = yaml.parseDocument(raw);
+    doc.setIn(['extensions', 'lenax_db'], {
+      enabled: true,
+      type: 'stdio',
+      name: 'LenaX-DB',
+      description: 'LenaX-DB — lokale Wissens-/RAG-Datenbank (Dateisystem-Index)',
+      cmd: found.exe,
+      args: found.config ? [found.config] : [],
+      // Startaufbau des Embedders (ONNX) kann einige Sekunden dauern -> großzügig.
+      timeout: 300,
+      env_keys: [],
+      bundled: false,
+    });
+    fs.writeFileSync(cfgFile, doc.toString());
+    log.info(
+      `[TB] LenaX-DB MCP standardmäßig verbunden: ${found.exe}${found.config ? ' (Config: ' + found.config + ')' : ' (Default-Config)'}`
+    );
+  } catch (e) {
+    log.error('[TB] LenaX-DB-Extension-Seeding fehlgeschlagen', e);
   }
 }
