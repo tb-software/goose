@@ -31,6 +31,7 @@ import { installBackendCertificateVerifiers } from './backendCertificateVerifier
 import { configureProxy } from './proxy';
 import { startGooseServe } from './gooseServe';
 import { ensureTbDefaults } from './tb/bootstrapDefaults';
+import { registerRiskConsentIpc } from './tb/consent/riskConsent';
 import {
   backupConfigOnExit,
   resetToFactory,
@@ -147,6 +148,68 @@ const MENU_TRANSLATIONS_ZH_CN: Record<string, string> = {
   'Hide Others': '隐藏其他',
   'Show All': '全部显示',
   Services: '服务',
+  // TB-Software
+  'Reset to TB Factory Settings': '重置为 TB 出厂设置',
+  'Restore Configuration from Backup': '从备份恢复配置',
+};
+
+// TB-Software: Deutsche Übersetzung der nativen Menüs (das App-UI ist deutsch; ohne diese
+// Tabelle blieb die Menüleiste englisch -> inkonsistent).
+const MENU_TRANSLATIONS_DE: Record<string, string> = {
+  File: 'Datei',
+  Edit: 'Bearbeiten',
+  View: 'Ansicht',
+  Window: 'Fenster',
+  Help: 'Hilfe',
+  'Add to dictionary': 'Zum Wörterbuch hinzufügen',
+  Cut: 'Ausschneiden',
+  Copy: 'Kopieren',
+  Paste: 'Einfügen',
+  'New Window': 'Neues Fenster',
+  Settings: 'Einstellungen',
+  'Find…': 'Suchen…',
+  'Find Next': 'Weitersuchen',
+  'Find Previous': 'Rückwärts suchen',
+  'Use Selection for Find': 'Auswahl suchen',
+  Find: 'Suchen',
+  'New Chat': 'Neuer Chat',
+  'New Chat Window': 'Neues Chat-Fenster',
+  'Open Directory...': 'Ordner öffnen…',
+  'Recent Directories': 'Zuletzt verwendete Ordner',
+  'Focus Goose Window': 'Goose-Fenster fokussieren',
+  'Quick Launcher': 'Schnellstart',
+  'Always on Top': 'Immer im Vordergrund',
+  'Toggle Navigation': 'Navigation umschalten',
+  'About Goose': 'Über Goose',
+  Undo: 'Rückgängig',
+  Redo: 'Wiederholen',
+  'Select All': 'Alles auswählen',
+  Delete: 'Löschen',
+  Speech: 'Sprache',
+  Reload: 'Neu laden',
+  'Force Reload': 'Neuladen erzwingen',
+  'Toggle Developer Tools': 'Entwicklertools umschalten',
+  'Actual Size': 'Tatsächliche Größe',
+  'Reset Zoom': 'Zoom zurücksetzen',
+  'Zoom In': 'Vergrößern',
+  'Zoom Out': 'Verkleinern',
+  'Toggle Full Screen': 'Vollbild umschalten',
+  'Toggle Fullscreen': 'Vollbild umschalten',
+  Minimize: 'Minimieren',
+  Close: 'Schließen',
+  'Close Window': 'Fenster schließen',
+  Quit: 'Beenden',
+  Exit: 'Beenden',
+  'Bring All to Front': 'Alle nach vorne bringen',
+  'Emoji & Symbols': 'Emoji & Symbole',
+  'Start Dictation…': 'Diktat starten…',
+  'Hide Goose': 'Goose ausblenden',
+  'Hide Others': 'Andere ausblenden',
+  'Show All': 'Alle einblenden',
+  Services: 'Dienste',
+  // TB-Software
+  'Reset to TB Factory Settings': 'Auf TB-Werkseinstellungen zurücksetzen',
+  'Restore Configuration from Backup': 'Konfiguration aus Backup wiederherstellen',
 };
 
 function detectMenuLocale(): string {
@@ -182,6 +245,9 @@ function menuT(label: string): string {
   const isSimplifiedChinese = !isTraditional && (lower === 'zh' || lower.startsWith('zh-'));
   if (isSimplifiedChinese) {
     return MENU_TRANSLATIONS_ZH_CN[label] ?? label;
+  }
+  if (lower === 'de' || lower.startsWith('de-')) {
+    return MENU_TRANSLATIONS_DE[label] ?? label;
   }
   return label;
 }
@@ -418,6 +484,9 @@ app.on('certificate-error', (event, _webContents, url, _error, certificate, call
 // TB-Software: Out-of-the-box-Setup (Proxy-Env-Defaults + Standard-Config seeden)
 // so frueh wie moeglich — bevor das Backend (goose.exe) gestartet wird.
 ensureTbDefaults();
+
+// TB-Software: IPC für den rechtssicheren Erst-Start-Warnhinweis (3-fach-Bestätigung + Audit).
+registerRiskConsentIpc();
 
 app.whenReady().then(() => {
   appConfig.GOOSE_LOCALE = getConfiguredGooseLocale();
@@ -2747,7 +2816,7 @@ async function appMain() {
     fileMenu.submenu.append(new MenuItem({ type: 'separator' }));
     fileMenu.submenu.append(
       new MenuItem({
-        label: menuT('Auf TB-Werkseinstellungen zurücksetzen'),
+        label: menuT('Reset to TB Factory Settings'),
         click() {
           const confirm = dialog.showMessageBoxSync({
             type: 'warning',
@@ -2767,7 +2836,7 @@ async function appMain() {
     );
     fileMenu.submenu.append(
       new MenuItem({
-        label: menuT('Konfiguration aus Backup wiederherstellen'),
+        label: menuT('Restore Configuration from Backup'),
         click() {
           tbOfferRestart(restoreFromBackup());
         },

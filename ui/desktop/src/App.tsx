@@ -10,6 +10,7 @@ import { toast, ToastContainer } from 'react-toastify';
 import AnnouncementModal from './components/AnnouncementModal';
 import TelemetryConsentPrompt from './components/TelemetryConsentPrompt';
 import OnboardingGuard from './components/onboarding/OnboardingGuard';
+import RiskConsentGate from './tb/consent/RiskConsentGate';
 import { createSession } from './sessions';
 import { acpListSessions, acpDeleteSession } from './acp/sessions';
 
@@ -691,11 +692,13 @@ export default function App() {
     <ThemeProvider>
       <FeaturesProvider>
         <ModelAndProviderProvider>
-          <HashRouter>
-            <AppInner />
-          </HashRouter>
-          <AnnouncementModal />
-          <TelemetryConsentPrompt />
+          <RiskConsentGate>
+            <HashRouter>
+              <AppInner />
+            </HashRouter>
+            <AnnouncementModal />
+            <TelemetryConsentPrompt />
+          </RiskConsentGate>
         </ModelAndProviderProvider>
       </FeaturesProvider>
     </ThemeProvider>

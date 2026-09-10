@@ -127,9 +127,10 @@ export function ensureTbDefaults(): void {
       fs.copyFileSync(hintsSrc, hintsDst);
     }
 
-    // LenaX-DB MCP standardmäßig verbinden (Pfad automatisch suchen; nicht gefunden ->
-    // in den Einstellungen manuell konfigurierbar).
-    ensureLenaxDbExtension(cfgDir);
+    // LenaX-DB MCP standardmäßig verbinden. IMMER als Erweiterung eintragen (auch wenn die Exe
+    // (noch) nicht gefunden wird) -> sichtbar + konfigurierbar. Gefunden = aktiv/verbunden,
+    // nicht gefunden = sichtbar, aber deaktiviert (Pfad in den Einstellungen setzen).
+    ensureLenaxDbExtension(cfgDir, { writePlaceholderIfMissing: true });
   } catch (e) {
     log.error('[TB] ensureTbDefaults fehlgeschlagen', e);
   }

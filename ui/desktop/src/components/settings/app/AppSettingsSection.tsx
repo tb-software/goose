@@ -12,6 +12,7 @@ import {
   DropdownMenuTrigger,
 } from '../../ui/dropdown-menu';
 import UpdateSection from './UpdateSection';
+import RiskConsentAudit from '../../../tb/consent/RiskConsentAudit';
 
 import { COST_TRACKING_ENABLED, UPDATES_ENABLED } from '../../../updates';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../ui/card';
@@ -599,6 +600,20 @@ export default function AppSettingsSection({ scrollToSection }: AppSettingsSecti
           </Card>
         </div>
       )}
+
+      {/* TB-Software: Audit der Sicherheits-/Risiko-Zustimmung (Nachweis). */}
+      <Card className="rounded-lg">
+        <CardHeader className="pb-0">
+          <CardTitle className="mb-1">Sicherheits-Zustimmung</CardTitle>
+          <CardDescription>
+            Nachweis, dass der Nutzer bestätigt hat, dass TB-Goose Dateien erstellen, ändern und
+            löschen kann (auch über das Netzwerk).
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="px-4">
+          <RiskConsentAudit />
+        </CardContent>
+      </Card>
 
       {/* Notification Instructions Modal */}
       <Dialog
