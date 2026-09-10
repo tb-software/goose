@@ -73,6 +73,27 @@ export function ensureTbDefaults(): void {
   if (!process.env.OPENAI_API_KEY) process.env.OPENAI_API_KEY = 'none';
   if (!process.env.GOOSE_DISABLE_KEYRING) process.env.GOOSE_DISABLE_KEYRING = 'true';
 
+  // KRITISCH: Der Proxy-Endpunkt MUSS gesetzt sein, sonst spricht der eingebaute openai-Provider
+  // das echte api.openai.com an (401 „Incorrect API key: none"). Frueher stand der Endpunkt NUR
+  // in der geseedeten config.yaml — existierte dort schon eine Config OHNE diese Schluessel (z. B.
+  // aus einer aelteren Version / UI-Onboarding), fiel Goose auf OpenAI zurueck. Da `Config::get_param`
+  // die ENV VOR der config.yaml liest, erzwingt das den Proxy unabhaengig vom Config-Zustand.
+  if (!process.env.OPENAI_HOST) process.env.OPENAI_HOST = 'https://t78.ch';
+  if (!process.env.OPENAI_BASE_PATH) {
+    process.env.OPENAI_BASE_PATH = 'apps/proxy/gericom/jumpserver.ashx/v1/chat/completions';
+  }
+  if (!process.env.OPENAI_CUSTOM_HEADERS) {
+    // Pflicht-Client-Identity-Header (sonst nur IP im #routes-Monitor).
+    const ver = (() => {
+      try {
+        return app.getVersion();
+      } catch {
+        return '1.50';
+      }
+    })();
+    process.env.OPENAI_CUSTOM_HEADERS = `X-Title=TB-Goose,X-Client=TB-Goose,X-Client-Site=gericom,X-Client-Version=${ver},X-Client-OS=Windows`;
+  }
+
   // Kuratierte auto:*-Modell-Liste + Default. Wird von getBundledConfig() (main.ts)
   // in appConfig uebernommen und treibt das Modell-Dropdown. Default: auto:code.
   if (!process.env.GOOSE_DEFAULT_PROVIDER) process.env.GOOSE_DEFAULT_PROVIDER = 'openai';
