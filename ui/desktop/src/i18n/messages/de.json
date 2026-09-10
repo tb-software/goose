@@ -4673,5 +4673,11 @@
   "updateSection.installing": {
     "defaultMessage": "Update wird installiert, Neustart folgt …",
     "description": "shown while the update is installing"
+  },
+  "updateSection.installHint": {
+    "defaultMessage": "Zum sofortigen Installieren & Neustarten klicken — oder es wird automatisch installiert, wenn Sie die App das nächste Mal schließen."
+  },
+  "updateSection.openDownloadFolder": {
+    "defaultMessage": "Download-Ordner öffnen"
   }
 }

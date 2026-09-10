@@ -169,6 +169,7 @@ type ElectronAPI = {
   onUpdaterEvent: (callback: (event: UpdaterEvent) => void) => void;
   getUpdateState: () => Promise<{ updateAvailable: boolean; latestVersion?: string } | null>;
   getDownloadReadyState: () => Promise<{ ready: boolean; version?: string } | null>;
+  revealUpdateDownload: () => Promise<{ ok: boolean; path?: string }>;
   isUsingGitHubFallback: () => Promise<boolean>;
   getAutoDownloadDisabled: () => Promise<boolean>;
   // Recipe warning functions
@@ -352,6 +353,9 @@ const electronAPI: ElectronAPI = {
   },
   getDownloadReadyState: (): Promise<{ ready: boolean; version?: string } | null> => {
     return ipcRenderer.invoke('get-download-ready-state');
+  },
+  revealUpdateDownload: (): Promise<{ ok: boolean; path?: string }> => {
+    return ipcRenderer.invoke('reveal-update-download');
   },
   isUsingGitHubFallback: (): Promise<boolean> => {
     return ipcRenderer.invoke('is-using-github-fallback');

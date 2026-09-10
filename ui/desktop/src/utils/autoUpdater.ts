@@ -8,6 +8,7 @@ import {
   Menu,
   MenuItemConstructorOptions,
   Notification,
+  shell,
 } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs/promises';
@@ -57,6 +58,10 @@ let lastCompletedDownload: { version: string; downloadPath: string; sha256Url?: 
 // TB-Software: verhindert, dass sich mehrere Checks (Start + „Nach Updates suchen" + App-Tab)
 // gegenseitig überlappende Downloads derselben Version anstoßen.
 let downloadInProgress = false;
+
+// TB-Software: Sobald EIN Swap-Install gestartet wurde (per Button ODER beim Beenden), darf kein
+// zweiter mehr starten — sonst würden sich zwei Swap-Skripte überschneiden.
+let swapInstallLaunched = false;
 
 async function fileExists(p: string): Promise<boolean> {
   try {
@@ -364,6 +369,7 @@ export function registerUpdateIpcHandlers() {
 
         // Erst antworten, dann beenden: 400 ms Verzögerung, damit das IPC-Ergebnis den Renderer
         // erreicht, bevor der Prozess endet (sonst „hängt" der await im UI).
+        swapInstallLaunched = true;
         log.info('Swap script launched — quitting app in 400ms so the swap can complete...');
         setTimeout(() => app.quit(), 400);
         return { success: true, error: null };
@@ -401,6 +407,56 @@ export function registerUpdateIpcHandlers() {
       return { ready: true, version: lastCompletedDownload.version };
     }
     return { ready: false };
+  });
+
+  // TB-Software: Öffnet den Ordner der heruntergeladenen Update-Datei (Fallback, falls der
+  // In-Place-Swap scheitert — dann kann der Nutzer das ZIP von Hand installieren).
+  ipcMain.handle('reveal-update-download', async () => {
+    const dl = githubUpdateInfo.downloadPath || lastCompletedDownload?.downloadPath;
+    if (dl && (await fileExists(dl))) {
+      shell.showItemInFolder(dl);
+      return { ok: true, path: dl };
+    }
+    return { ok: false };
+  });
+
+  // TB-Software: INSTALLATION BEIM BEENDEN. Erwartung des Nutzers: „schließen -> beim nächsten
+  // Öffnen ist es aktualisiert". Liegt ein fertiger Download vor, wird beim Beenden der Swap
+  // OHNE Neustart ausgeführt (App bleibt zu; nächster Start ist die neue Version). Der explizite
+  // „Installieren & Neustarten"-Button bleibt für sofortiges Installieren+Neustart.
+  app.on('before-quit', (e) => {
+    if (swapInstallLaunched) return; // Button-Install (mit Neustart) läuft bereits.
+    if (autoDownloadDisabled) return; // Auto-Downloads aus -> auch kein Auto-Install.
+    if (!isUsingGitHubFallback) return;
+    const dl = githubUpdateInfo.downloadPath || lastCompletedDownload?.downloadPath;
+    if (!dl) return;
+
+    e.preventDefault();
+    swapInstallLaunched = true;
+    const sha = githubUpdateInfo.sha256Url ?? lastCompletedDownload?.sha256Url;
+    log.info(`[TB] Installation beim Beenden: Swap ohne Neustart -> ${dl}`);
+    (async () => {
+      try {
+        if (!(await fileExists(dl))) {
+          log.warn('[TB] Quit-Install: Datei nicht mehr vorhanden — überspringe.');
+          return;
+        }
+        if (sha) {
+          const ok = await verifyT78Sha256(dl, sha);
+          if (!ok) {
+            log.error('[TB] Quit-Install: SHA-256 stimmt nicht — überspringe.');
+            return;
+          }
+        }
+        const r = await githubUpdater.installUpdate(dl, false);
+        if (!r.success) log.error('[TB] Quit-Install fehlgeschlagen:', r.error);
+        else log.info('[TB] Quit-Install: Swap läuft (Tausch nach App-Ende).');
+      } catch (err) {
+        log.error('[TB] Quit-Install Ausnahme:', err);
+      } finally {
+        app.quit();
+      }
+    })();
   });
 
   ipcMain.handle('is-using-github-fallback', () => {

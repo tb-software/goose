@@ -275,8 +275,10 @@ async function writeSwapScript(options: {
   relaunchPath: string;
   executableRelativePath: string;
   pid: number;
+  // false = nur tauschen, nicht neu starten (Installation beim Beenden -> App bleibt zu).
+  relaunch: boolean;
 }): Promise<SwapCommand> {
-  const { stagingDir, payloadPath, targetPath, relaunchPath, executableRelativePath, pid } =
+  const { stagingDir, payloadPath, targetPath, relaunchPath, executableRelativePath, pid, relaunch } =
     options;
   // The script deletes its staging directory once it finishes, so the log lives beside that
   // directory to survive cleanup and stay available when diagnosing a failed update.
@@ -329,7 +331,7 @@ async function writeSwapScript(options: {
       `  Remove-Item -LiteralPath ${powershellQuote(targetPath)} -Recurse -Force -ErrorAction SilentlyContinue`,
       `  Move-Item -LiteralPath ${powershellQuote(backupPath)} -Destination ${powershellQuote(targetPath)} -Force`,
       `}`,
-      `Start-Process -FilePath ${powershellQuote(relaunchPath)}`,
+      ...(relaunch ? [`Start-Process -FilePath ${powershellQuote(relaunchPath)}`] : ['Write-Log \'swap done (no relaunch)\'']),
       `try { Stop-Transcript | Out-Null } catch {}`,
       `Remove-Item -LiteralPath ${powershellQuote(stagingDir)} -Recurse -Force -ErrorAction SilentlyContinue`,
       '',
@@ -352,8 +354,9 @@ async function writeSwapScript(options: {
     process.platform === 'darwin'
       ? `ditto ${quotedPayload} ${quotedTarget}`
       : `cp -a ${quotedPayload} ${quotedTarget}`;
-  const relaunch =
-    process.platform === 'darwin'
+  const relaunchCmds = !relaunch
+    ? []
+    : process.platform === 'darwin'
       ? [`xattr -dr com.apple.quarantine ${quotedTarget} || true`, `open ${quotedRelaunch}`]
       : [`${quotedRelaunch} >/dev/null 2>&1 &`];
 
@@ -382,7 +385,7 @@ async function writeSwapScript(options: {
     `  rm -rf ${quotedTarget}`,
     `  mv ${quotedBackup} ${quotedTarget}`,
     'fi',
-    ...relaunch,
+    ...relaunchCmds,
     `rm -rf ${shellQuote(stagingDir)}`,
     '',
   ].join('\n');
@@ -430,6 +433,7 @@ export async function prepareUpdateInstall(options: {
   relaunchPath: string;
   executableRelativePath: string;
   pid: number;
+  relaunch?: boolean;
 }): Promise<SwapCommand> {
   const stagingDir = path.dirname(options.archivePath);
   const extractDir = path.join(stagingDir, 'extracted');
@@ -450,6 +454,7 @@ export async function prepareUpdateInstall(options: {
     relaunchPath: options.relaunchPath,
     executableRelativePath: options.executableRelativePath,
     pid: options.pid,
+    relaunch: options.relaunch !== false,
   });
 }
 
@@ -708,10 +713,13 @@ export class GitHubUpdater {
     }
   }
 
-  async installUpdate(downloadPath: string): Promise<{ success: boolean; error?: string }> {
+  async installUpdate(
+    downloadPath: string,
+    relaunch = true
+  ): Promise<{ success: boolean; error?: string }> {
     try {
       log.info('=== GitHubUpdater: STARTING AUTOMATIC INSTALL ===');
-      log.info(`GitHubUpdater: Download path: ${downloadPath}`);
+      log.info(`GitHubUpdater: Download path: ${downloadPath} (relaunch=${relaunch})`);
 
       await fs.access(downloadPath);
 
@@ -726,6 +734,7 @@ export class GitHubUpdater {
         relaunchPath,
         executableRelativePath,
         pid: process.pid,
+        relaunch,
       });
 
       launchSwapScript(swap);

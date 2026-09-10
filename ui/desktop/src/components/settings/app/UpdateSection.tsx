@@ -55,6 +55,15 @@ const i18n = defineMessages({
     id: 'updateSection.installing',
     defaultMessage: 'Installing update, restarting shortly...',
   },
+  installHint: {
+    id: 'updateSection.installHint',
+    defaultMessage:
+      'Click to install & restart now — or it installs automatically the next time you close the app.',
+  },
+  openDownloadFolder: {
+    id: 'updateSection.openDownloadFolder',
+    defaultMessage: 'Open download folder',
+  },
   checking: {
     id: 'updateSection.checking',
     defaultMessage: 'Checking for updates...',
@@ -141,20 +150,27 @@ export default function UpdateSection() {
       }
     });
 
-    // TB-Software: Beim (Neu-)Öffnen des App-Tabs den „installationsbereit"-Zustand wiederherstellen,
-    // falls die Version im Hauptprozess bereits vollständig heruntergeladen ist. Sonst würde der
-    // Install-Button nach einem Tab-Wechsel verschwinden.
-    window.electron.getDownloadReadyState?.().then((ready) => {
-      if (ready?.ready) {
-        setProgress(100);
-        setUpdateStatus((prev) => (prev === 'idle' ? 'ready' : prev));
-        setUpdateInfo((prev) => ({
-          ...prev,
-          isUpdateAvailable: true,
-          latestVersion: ready.version ?? prev.latestVersion,
-        }));
-      }
-    });
+    // TB-Software: Den „installationsbereit"-Zustand ROBUST erkennen — nicht nur über Events
+    // (die verpasst werden, wenn der Download abschloss, bevor der Tab offen war), sondern per
+    // Polling. So erscheint der Install-Button zuverlässig, sobald der Hauptprozess ein fertiges
+    // Paket hat — unabhängig vom Event-Timing.
+    const pollReady = () => {
+      window.electron.getDownloadReadyState?.().then((ready) => {
+        if (ready?.ready) {
+          setProgress(100);
+          // Nur aus neutralen Zuständen auf „ready" wechseln — laufende/aktive Zustände
+          // (Download, Installation, Prüfung, Fehler) nicht überschreiben.
+          setUpdateStatus((prev) => (prev === 'idle' || prev === 'success' ? 'ready' : prev));
+          setUpdateInfo((prev) => ({
+            ...prev,
+            isUpdateAvailable: true,
+            latestVersion: ready.version ?? prev.latestVersion,
+          }));
+        }
+      });
+    };
+    pollReady();
+    const readyPoll = setInterval(pollReady, 2000);
 
     window.electron.getSetting('disableAutoDownload').then((stored) => {
       setDisableAutoDownload(!!stored);
@@ -232,6 +248,7 @@ export default function UpdateSection() {
       if (progressTimeoutRef.current) {
         clearTimeout(progressTimeoutRef.current);
       }
+      clearInterval(readyPoll);
     };
   }, []);
 
@@ -402,6 +419,17 @@ export default function UpdateSection() {
               {intl.formatMessage(i18n.installAndRestart)}
             </Button>
           )}
+
+          {/* TB-Software: Fallback, falls der In-Place-Swap scheitert -> Ordner mit dem ZIP öffnen. */}
+          {updateStatus === 'error' && (
+            <Button
+              onClick={() => window.electron.revealUpdateDownload?.()}
+              variant="secondary"
+              size="sm"
+            >
+              {intl.formatMessage(i18n.openDownloadFolder)}
+            </Button>
+          )}
         </div>
 
         {getStatusMessage() && (
@@ -409,6 +437,13 @@ export default function UpdateSection() {
             {getStatusIcon()}
             <span>{getStatusMessage()}</span>
           </div>
+        )}
+
+        {/* TB-Software: klarer Hinweis, was beim „ready"-Zustand passiert (Klick ODER Beenden). */}
+        {updateStatus === 'ready' && (
+          <p className="basis-full text-xs text-text-secondary mt-1">
+            {intl.formatMessage(i18n.installHint)}
+          </p>
         )}
 
         {updateStatus === 'downloading' && (
