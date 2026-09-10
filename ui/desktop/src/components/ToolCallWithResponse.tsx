@@ -336,7 +336,7 @@ function ToolCallExpandable({
     <div className={className}>
       <Button
         onClick={toggleExpand}
-        className="group w-full flex justify-between items-center pr-2 transition-colors rounded-none"
+        className="group w-full flex justify-between items-center pr-2 transition-colors rounded-none !h-auto py-1"
         variant="ghost"
       >
         <span className="flex items-center font-sans text-sm truncate flex-1 min-w-0">{label}</span>

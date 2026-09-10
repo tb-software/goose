@@ -282,9 +282,9 @@ const MarkdownContent = memo(function MarkdownContent({
         prose-td:border prose-td:border-border-primary prose-td:p-2
         prose-th:border prose-th:border-border-primary prose-th:p-2
         prose-thead:bg-background-primary
-        prose-h1:text-2xl prose-h1:font-normal prose-h1:mb-5 prose-h1:mt-0 prose-h1:font-sans
-        prose-h2:text-xl prose-h2:font-normal prose-h2:mb-4 prose-h2:mt-4 prose-h2:font-sans
-        prose-h3:text-lg prose-h3:font-normal prose-h3:mb-3 prose-h3:mt-3 prose-h3:font-sans
+        prose-h1:text-lg prose-h1:font-semibold prose-h1:mb-2 prose-h1:mt-1 prose-h1:font-sans
+        prose-h2:text-base prose-h2:font-semibold prose-h2:mb-2 prose-h2:mt-3 prose-h2:font-sans
+        prose-h3:text-sm prose-h3:font-semibold prose-h3:mb-1.5 prose-h3:mt-2 prose-h3:font-sans
         prose-p:mt-0 prose-p:mb-2 prose-p:font-sans
         prose-ol:my-2 prose-ol:font-sans
         prose-ul:mt-0 prose-ul:mb-3 prose-ul:font-sans

@@ -148,7 +148,7 @@ function GooseMessage({
         {toolRequests.length > 0 && (
           <div className={cn(displayText && 'mt-2')}>
             <div className="relative flex flex-col w-full group">
-              <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-1">
                 {toolRequests.map((toolRequest, toolIndex) => {
                   const toolState = toolStates[toolIndex];
                   const hasResponse = toolState.response !== undefined;

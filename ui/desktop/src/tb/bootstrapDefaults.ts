@@ -147,14 +147,29 @@ function discoverLenaxDbMcp(): LenaxDbLocation | null {
   return { exe, config: fs.existsSync(cfg) ? cfg : null };
 }
 
-// Prüft, ob in der Goose-Config bereits eine LenaX-DB-Extension existiert (Key oder Name).
-function hasLenaxExtension(parsed: unknown): boolean {
-  const exts = (parsed as { extensions?: Record<string, { name?: string }> })?.extensions;
-  if (!exts || typeof exts !== 'object') return false;
-  if (Object.prototype.hasOwnProperty.call(exts, 'lenax_db')) return true;
-  return Object.values(exts).some(
-    (e) => typeof e?.name === 'string' && /lenax/i.test(e.name)
-  );
+// Der Config-Pfad MUSS als Flag `--config <pfad>` übergeben werden. Ein positionaler
+// Pfad wird vom lenaxdb-mcp-Binary ignoriert -> es startet mit Default-Config (0 Quellen).
+function lenaxArgs(configPath: string | null): string[] {
+  return configPath ? ['--config', configPath] : [];
+}
+
+// Findet einen vorhandenen LenaX-DB-Extension-Eintrag (per Key oder per Name).
+function findLenaxEntry(
+  parsed: unknown
+): { key: string; entry: { cmd?: string; timeout?: number } } | null {
+  const exts = (
+    parsed as {
+      extensions?: Record<string, { name?: string; cmd?: string; timeout?: number }>;
+    }
+  )?.extensions;
+  if (!exts || typeof exts !== 'object') return null;
+  if (exts.lenax_db) return { key: 'lenax_db', entry: exts.lenax_db };
+  for (const [key, entry] of Object.entries(exts)) {
+    if (typeof entry?.name === 'string' && /lenax/i.test(entry.name)) {
+      return { key, entry };
+    }
+  }
+  return null;
 }
 
 export function ensureLenaxDbExtension(cfgDir: string): void {
@@ -164,19 +179,33 @@ export function ensureLenaxDbExtension(cfgDir: string): void {
 
     const raw = fs.readFileSync(cfgFile, 'utf8');
     const parsed = yaml.parse(raw) ?? {};
-
-    // Bereits vorhanden (auch deaktiviert) -> Nutzer-Entscheidung respektieren.
-    if (hasLenaxExtension(parsed)) return;
-
     const found = discoverLenaxDbMcp();
-    if (!found) {
-      log.info(
-        '[TB] LenaX-DB MCP nicht gefunden — in den Einstellungen manuell konfigurierbar.'
-      );
+    const existing = findLenaxEntry(parsed);
+
+    if (existing) {
+      // Vorhandenen Eintrag NUR reparieren, wenn er kaputt ist (cmd-Pfad existiert nicht)
+      // und wir eine gültige exe gefunden haben. Sonst Nutzer-Entscheidung respektieren.
+      const cmd = String(existing.entry.cmd ?? '').trim();
+      const cmdBroken = !cmd || !fs.existsSync(cmd);
+      if (found && cmdBroken) {
+        const doc = yaml.parseDocument(raw);
+        doc.setIn(['extensions', existing.key, 'cmd'], found.exe);
+        doc.setIn(['extensions', existing.key, 'args'], lenaxArgs(found.config));
+        if (existing.entry.timeout == null) {
+          doc.setIn(['extensions', existing.key, 'timeout'], 300);
+        }
+        fs.writeFileSync(cfgFile, doc.toString());
+        log.info(`[TB] LenaX-DB MCP-Eintrag repariert (${existing.key}) -> ${found.exe}`);
+      }
       return;
     }
 
-    // Eintrag anfügen, Kommentare/Reihenfolge der bestehenden Config erhalten.
+    if (!found) {
+      log.info('[TB] LenaX-DB MCP nicht gefunden — in den Einstellungen manuell konfigurierbar.');
+      return;
+    }
+
+    // Neuen Eintrag anfügen, Kommentare/Reihenfolge der bestehenden Config erhalten.
     const doc = yaml.parseDocument(raw);
     doc.setIn(['extensions', 'lenax_db'], {
       enabled: true,
@@ -184,7 +213,7 @@ export function ensureLenaxDbExtension(cfgDir: string): void {
       name: 'LenaX-DB',
       description: 'LenaX-DB — lokale Wissens-/RAG-Datenbank (Dateisystem-Index)',
       cmd: found.exe,
-      args: found.config ? [found.config] : [],
+      args: lenaxArgs(found.config),
       // Startaufbau des Embedders (ONNX) kann einige Sekunden dauern -> großzügig.
       timeout: 300,
       env_keys: [],
@@ -192,7 +221,7 @@ export function ensureLenaxDbExtension(cfgDir: string): void {
     });
     fs.writeFileSync(cfgFile, doc.toString());
     log.info(
-      `[TB] LenaX-DB MCP standardmäßig verbunden: ${found.exe}${found.config ? ' (Config: ' + found.config + ')' : ' (Default-Config)'}`
+      `[TB] LenaX-DB MCP standardmäßig verbunden: ${found.exe}${found.config ? ' (--config ' + found.config + ')' : ' (Default-Config)'}`
     );
   } catch (e) {
     log.error('[TB] LenaX-DB-Extension-Seeding fehlgeschlagen', e);

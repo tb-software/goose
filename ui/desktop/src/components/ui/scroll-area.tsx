@@ -1,5 +1,6 @@
 import * as React from 'react';
 import * as ScrollAreaPrimitive from '@radix-ui/react-scroll-area';
+import { ChevronDown } from 'lucide-react';
 
 type ScrollBehavior = 'auto' | 'smooth';
 
@@ -238,6 +239,19 @@ const ScrollArea = React.forwardRef<ScrollAreaHandle, ScrollAreaProps>(
         </ScrollAreaPrimitive.Viewport>
         <ScrollBar />
         <ScrollAreaPrimitive.Corner />
+        {/* TB-Software: dezenter „nach unten scrollen"-Button. Erscheint nur, wenn der
+            Nutzer hochgescrollt hat (autoScroll aktiv, nicht mehr am unteren Rand). */}
+        {autoScroll && !isFollowing && (
+          <button
+            type="button"
+            onClick={scrollToBottom}
+            aria-label="Zum neuesten Eintrag scrollen"
+            title="Zum neuesten Eintrag"
+            className="absolute bottom-3 right-3 z-20 flex h-8 w-8 items-center justify-center rounded-full border border-border-primary bg-background-secondary/90 text-text-secondary shadow-md backdrop-blur transition-colors hover:bg-background-secondary hover:text-text-primary"
+          >
+            <ChevronDown className="h-4 w-4" />
+          </button>
+        )}
       </ScrollAreaPrimitive.Root>
     );
   }
