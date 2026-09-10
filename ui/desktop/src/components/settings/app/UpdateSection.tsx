@@ -105,6 +105,8 @@ interface UpdateInfo {
 interface UpdateEventData {
   version?: string;
   percent?: number;
+  loaded?: number;
+  total?: number;
 }
 
 export default function UpdateSection() {
@@ -114,6 +116,8 @@ export default function UpdateSection() {
     currentVersion: '',
   });
   const [progress, setProgress] = useState<number>(0);
+  // TB-Software: heruntergeladene/gesamte Bytes für die „x MB / y MB"-Anzeige.
+  const [bytes, setBytes] = useState<{ loaded: number; total: number }>({ loaded: 0, total: 0 });
   const [disableAutoDownload, setDisableAutoDownload] = useState<boolean>(false);
   const [autoDownloadForcedByEnv, setAutoDownloadForcedByEnv] = useState<boolean>(false);
   const progressTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -168,7 +172,11 @@ export default function UpdateSection() {
         case 'download-progress': {
           setUpdateStatus('downloading');
 
-          const rawPercent = (event.data as UpdateEventData)?.percent;
+          const data = event.data as UpdateEventData;
+          if (typeof data?.loaded === 'number' && typeof data?.total === 'number') {
+            setBytes({ loaded: data.loaded, total: data.total });
+          }
+          const rawPercent = data?.percent;
           const newProgress = typeof rawPercent === 'number' ? Math.round(rawPercent) : 0;
 
           if (newProgress > lastProgressRef.current) {
@@ -362,7 +370,12 @@ export default function UpdateSection() {
           <div className="w-full mt-2">
             <div className="flex justify-between text-xs text-text-secondary mb-1">
               <span>{intl.formatMessage(i18n.downloadingUpdate)}</span>
-              <span>{progress}%</span>
+              {/* TB-Software: Balken zeigt MB (der Status-Text oben zeigt %). */}
+              <span>
+                {bytes.total > 0
+                  ? `${(bytes.loaded / 1048576).toFixed(1)} MB / ${(bytes.total / 1048576).toFixed(1)} MB`
+                  : `${progress}%`}
+              </span>
             </div>
             <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 overflow-hidden">
               <div

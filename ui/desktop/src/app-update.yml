@@ -1,4 +1,4 @@
 provider: github
-owner: aaif-goose
+owner: tb-software
 repo: goose
 updaterCacheDirName: goose-updater

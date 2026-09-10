@@ -454,9 +454,9 @@ export async function prepareUpdateInstall(options: {
 }
 
 export class GitHubUpdater {
-  private readonly owner = process.env.GITHUB_OWNER || 'aaif-goose';
+  private readonly owner = process.env.GITHUB_OWNER || 'tb-software';
   private readonly repo = process.env.GITHUB_REPO || 'goose';
-  private readonly bundleName = process.env.GOOSE_BUNDLE_NAME || 'Goose';
+  private readonly bundleName = process.env.GOOSE_BUNDLE_NAME || 'TB-Goose';
   private readonly apiUrl = `https://api.github.com/repos/${this.owner}/${this.repo}/releases/latest`;
 
   async checkForUpdates(): Promise<UpdateCheckResult> {
@@ -588,7 +588,7 @@ export class GitHubUpdater {
   async downloadUpdate(
     downloadUrl: string,
     latestVersion: string,
-    onProgress?: (percent: number) => void
+    onProgress?: (percent: number, loadedBytes: number, totalBytes: number) => void
   ): Promise<{ success: boolean; downloadPath?: string; extractedPath?: string; error?: string }> {
     const downloadStartTime = Date.now();
     try {
@@ -641,7 +641,7 @@ export class GitHubUpdater {
 
           // Only report if percent changed (throttles from hundreds/sec to ~100 total)
           if (percent !== lastReportedPercent) {
-            onProgress(percent);
+            onProgress(percent, downloadedSize, totalSize);
             lastReportedPercent = percent;
 
             // Log at 10% intervals for debugging

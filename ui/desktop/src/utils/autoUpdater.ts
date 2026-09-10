@@ -48,6 +48,21 @@ let ipcUpdateHandlersRegistered = false;
 
 let autoDownloadDisabled = false;
 
+// TB-Software: merkt die zuletzt VOLLSTÄNDIG heruntergeladene Version + Datei. So lädt ein
+// erneuter Check (z. B. bei jedem Öffnen des App-Tabs) nicht noch einmal herunter, und der
+// Install-Pfad bleibt erhalten (sonst wäre er nach dem State-Reset weg -> „Install tut nichts").
+let lastCompletedDownload: { version: string; downloadPath: string; sha256Url?: string } | null =
+  null;
+
+async function fileExists(p: string): Promise<boolean> {
+  try {
+    await fs.access(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function setAutoDownloadDisabled(disabled: boolean) {
   autoDownloadDisabled = disabled;
   autoUpdater.autoDownload = !disabled;
@@ -233,12 +248,12 @@ export function registerUpdateIpcHandlers() {
         const result = await githubUpdater.downloadUpdate(
           githubUpdateInfo.downloadUrl,
           githubUpdateInfo.latestVersion,
-          (percent) => {
+          (percent, loaded, total) => {
             // Only send if progress increased (monotonic)
             if (percent > lastReportedProgress) {
               lastReportedProgress = percent;
               trackUpdateDownloadProgress(percent);
-              sendStatusToWindow('download-progress', { percent });
+              sendStatusToWindow('download-progress', { percent, loaded, total });
             }
           }
         );
@@ -246,6 +261,13 @@ export function registerUpdateIpcHandlers() {
         if (result.success && result.downloadPath) {
           githubUpdateInfo.downloadPath = result.downloadPath;
           githubUpdateInfo.extractedPath = result.extractedPath;
+          if (githubUpdateInfo.latestVersion) {
+            lastCompletedDownload = {
+              version: githubUpdateInfo.latestVersion,
+              downloadPath: result.downloadPath,
+              sha256Url: githubUpdateInfo.sha256Url,
+            };
+          }
           trackUpdateDownloadCompleted(true, githubUpdateInfo.latestVersion, 'github-fallback');
           sendStatusToWindow('update-downloaded', { version: githubUpdateInfo.latestVersion });
           return { success: true, error: null };
@@ -364,7 +386,7 @@ export function setupAutoUpdater(tray?: Tray) {
   // Set the feed URL for GitHub releases
   const feedConfig = {
     provider: 'github' as const,
-    owner: 'aaif-goose',
+    owner: 'tb-software',
     repo: 'goose',
     releaseType: 'release' as const,
   };
@@ -730,6 +752,20 @@ async function runT78UpdateCheck(
     lastUpdateState = { updateAvailable: true, latestVersion: result.latestVersion };
     updateTrayIcon(true);
     sendStatusToWindow('update-available', { version: result.latestVersion });
+
+    // Schon vollständig heruntergeladen (gleiche Version, Datei vorhanden)? -> NICHT neu laden,
+    // sondern direkt „installationsbereit" melden. Verhindert den Re-Download beim App-Tab und
+    // hält den Install-Pfad stabil.
+    if (
+      lastCompletedDownload &&
+      lastCompletedDownload.version === result.latestVersion &&
+      (await fileExists(lastCompletedDownload.downloadPath))
+    ) {
+      githubUpdateInfo.downloadPath = lastCompletedDownload.downloadPath;
+      sendStatusToWindow('update-downloaded', { version: result.latestVersion });
+      return { available: true, version: result.latestVersion };
+    }
+
     if (!autoDownloadDisabled) {
       await githubAutoDownload(result.downloadUrl, result.latestVersion!, `${source} (t78)`);
     }
@@ -768,12 +804,12 @@ async function githubAutoDownload(
     const downloadResult = await githubUpdater.downloadUpdate(
       downloadUrl,
       latestVersion,
-      (percent) => {
+      (percent, loaded, total) => {
         // Only send if progress increased (monotonic)
         if (percent > lastReportedProgress) {
           lastReportedProgress = percent;
           trackUpdateDownloadProgress(percent);
-          sendStatusToWindow('download-progress', { percent });
+          sendStatusToWindow('download-progress', { percent, loaded, total });
         }
       }
     );
@@ -781,6 +817,11 @@ async function githubAutoDownload(
     if (downloadResult.success && downloadResult.downloadPath) {
       githubUpdateInfo.downloadPath = downloadResult.downloadPath;
       githubUpdateInfo.extractedPath = downloadResult.extractedPath;
+      lastCompletedDownload = {
+        version: latestVersion,
+        downloadPath: downloadResult.downloadPath,
+        sha256Url: githubUpdateInfo.sha256Url,
+      };
       trackUpdateDownloadCompleted(true, latestVersion, 'github-fallback');
       sendStatusToWindow('update-downloaded', { version: latestVersion });
     } else {
