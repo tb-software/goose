@@ -36,7 +36,8 @@ use crate::agents::state_machine::{
     has_unapplied_tool_confirmation_response, pending_tool_confirmations,
     persist_tool_confirmation_decision, run_goose, BangShellOperation, CompactionOperation,
     DoctorOperation, Emitter, EntryHookOperation, ExitOnErrorOperation, GooseEffect,
-    GooseInferenceProvider, GooseInferenceRequestPreparer, InferenceRunner, MaxTurnsOperation,
+    GooseInferenceProvider, GooseInferenceRequestPreparer, InferenceRunner,
+    LengthContinuationOperation, MaxTurnsOperation,
     Operation, ProjectOperation, RecipeOperation, RetryOperation, SkillOperation,
     SlashCommandOperation, StateMachine, StatusOperation, SteerOperation, SteerQueue, Step,
     StopHookOperation, ToolApprovalOperation, ToolExecutionOperation, ToolPairCompactionOperation,
@@ -1719,6 +1720,9 @@ impl Agent {
                 self.hook_manager.clone(),
             )),
             Arc::new(UnknownToolOperation::new(self.hook_manager.clone())),
+            // TB-Software: automatische Fortsetzung bei am Ausgabe-Token-Limit abgeschnittener
+            // Antwort (Paritaet zum Legacy-Loop). Laeuft, bevor Retry/StopHook den Turn beenden.
+            Arc::new(LengthContinuationOperation),
             Arc::new(RetryOperation::new(
                 &self.goal,
                 &self.grind,
