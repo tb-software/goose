@@ -13,6 +13,7 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import log from './logger';
 import { githubUpdater } from './githubUpdater';
+import { t78FeedUrl, checkT78Feed, verifyT78Sha256 } from './t78Updater';
 import { loadRecentDirs } from './recentDirs';
 import { errorMessage } from './conversionUtils';
 import {
@@ -33,6 +34,7 @@ let githubUpdateInfo: {
   releaseUrl?: string;
   downloadPath?: string;
   extractedPath?: string;
+  sha256Url?: string;
 } = {};
 
 // Store update state
@@ -69,6 +71,14 @@ export function registerUpdateIpcHandlers() {
   ipcMain.handle('check-for-updates', async () => {
     const currentVersion = autoUpdater.currentVersion?.version || app.getVersion();
     const checkStartTime = Date.now();
+
+    // TB-Software: Ist ein t78.ch-Feed konfiguriert (Default), ist er die maßgebliche
+    // Update-Quelle. Der electron-updater/GitHub-Weg unten greift nur ohne Feed.
+    if (t78FeedUrl()) {
+      trackUpdateCheckStarted('manual', currentVersion);
+      const r = await runT78UpdateCheck('manual');
+      return { updateInfo: null, error: r.error ?? null };
+    }
 
     try {
       log.info('=== MANUAL UPDATE CHECK INITIATED ===');
@@ -283,6 +293,18 @@ export function registerUpdateIpcHandlers() {
         throw new Error('Update file not found. Please download the update first.');
       }
 
+      // TB-Software: Integrität des heruntergeladenen Pakets gegen den t78-SHA-256-Sidecar
+      // prüfen (Schutz vor manipuliertem Paket), bevor es installiert wird.
+      if (githubUpdateInfo.sha256Url) {
+        const ok = await verifyT78Sha256(downloadPath, githubUpdateInfo.sha256Url);
+        if (!ok) {
+          const msg = 'Integritätsprüfung (SHA-256) des Updates fehlgeschlagen — Installation abgebrochen.';
+          log.error(msg);
+          sendStatusToWindow('error', msg);
+          throw new Error(msg);
+        }
+      }
+
       trackUpdateInstallInitiated(
         githubUpdateInfo.latestVersion || 'unknown',
         'github-fallback',
@@ -401,6 +423,15 @@ export function setupAutoUpdater(tray?: Tray) {
   setTimeout(() => {
     const currentVersion = autoUpdater.currentVersion?.version || app.getVersion();
     const checkStartTime = Date.now();
+
+    // TB-Software: Start-Check gegen den t78.ch-Feed (Default-Quelle für TB-Goose).
+    if (t78FeedUrl()) {
+      trackUpdateCheckStarted('startup', currentVersion);
+      log.info('[TB] Startup-Update-Check über t78-Feed');
+      void runT78UpdateCheck('startup');
+      return;
+    }
+
     log.info('=== STARTUP UPDATE CHECK INITIATED ===');
     log.info(`Checking for updates on startup at ${new Date().toISOString()}`);
     log.info(`autoUpdater.currentVersion: ${JSON.stringify(autoUpdater.currentVersion)}`);
@@ -661,6 +692,59 @@ export function setupAutoUpdater(tray?: Tray) {
 interface UpdaterEvent {
   event: string;
   data?: unknown;
+}
+
+// TB-Software: Update-Check gegen den t78.ch-Feed. Setzt denselben Zustand wie der
+// GitHub-Fallback (isUsingGitHubFallback + githubUpdateInfo), sodass die vorhandene
+// Download-/Install-/UI-Maschinerie unverändert weiterläuft — nur die Quelle ist der Feed.
+async function runT78UpdateCheck(
+  source: 'manual' | 'startup'
+): Promise<{ available: boolean; version?: string; error?: string }> {
+  const currentVersion = app.getVersion();
+  isUsingGitHubFallback = true;
+  githubUpdateInfo = {};
+  lastReportedProgress = 0;
+
+  const result = await checkT78Feed();
+
+  if (result.error && !result.latestVersion) {
+    trackUpdateCheckCompleted('error', currentVersion, {
+      usingFallback: true,
+      errorType: 't78_feed',
+    });
+    sendStatusToWindow('error', result.error);
+    return { available: false, error: result.error };
+  }
+
+  if (result.updateAvailable && result.downloadUrl) {
+    githubUpdateInfo = {
+      latestVersion: result.latestVersion,
+      downloadUrl: result.downloadUrl,
+      sha256Url: result.sha256Url,
+    };
+    trackUpdateCheckCompleted('available', currentVersion, {
+      latestVersion: result.latestVersion,
+      usingFallback: true,
+    });
+    updateAvailable = true;
+    lastUpdateState = { updateAvailable: true, latestVersion: result.latestVersion };
+    updateTrayIcon(true);
+    sendStatusToWindow('update-available', { version: result.latestVersion });
+    if (!autoDownloadDisabled) {
+      await githubAutoDownload(result.downloadUrl, result.latestVersion!, `${source} (t78)`);
+    }
+    return { available: true, version: result.latestVersion };
+  }
+
+  trackUpdateCheckCompleted('not_available', currentVersion, {
+    latestVersion: result.latestVersion,
+    usingFallback: true,
+  });
+  updateAvailable = false;
+  lastUpdateState = { updateAvailable: false, latestVersion: result.latestVersion };
+  updateTrayIcon(false);
+  sendStatusToWindow('update-not-available', { version: currentVersion });
+  return { available: false, version: result.latestVersion };
 }
 
 function sendStatusToWindow(event: string, data?: unknown) {
