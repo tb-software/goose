@@ -242,22 +242,29 @@ export async function resolveInstallTarget(exePath: string): Promise<InstallTarg
 
   const installDir = path.dirname(resolvedExePath);
 
-  if (!(await isPackagedAppDirectory(installDir))) {
+  // TB-Software: Beim Self-Update IST dirname(exe) per Definition der App-Ordner (die laufende
+  // App liegt dort). Der einzig gefährliche Fall ist ein GETEILTER Systemordner (z. B. Desktop,
+  // Downloads, Programme-Wurzel) — den würde der Tausch als Ganzes beiseiteschieben. Das bleibt
+  // ein hartes Abbruch-Kriterium. Die übrigen Prüfungen (sieht es „verpackt" aus / nur App-Dateien)
+  // waren zu streng und lehnten reale, gültige Installationen ab (z. B. D:\_AI\Programs\TB-Goose).
+  // Sie werden zu WARNUNGEN — der Tausch sichert den alten Ordner ohnehin als .goose-previous
+  // (löscht nichts) und prüft nach dem Kopieren, ob die neue Exe vorhanden ist (sonst Rollback).
+  if (isSharedDirectory(installDir)) {
     throw new Error(
-      `Refusing to auto-update: ${installDir} does not look like an app install directory`
+      `Auto-Update abgebrochen: ${installDir} ist ein geteilter Systemordner. Bitte TB-Goose in einen eigenen Ordner verschieben (z. B. C:\\_AI\\Applications\\TB-Goose) und erneut versuchen.`
     );
   }
 
-  if (isSharedDirectory(installDir)) {
-    throw new Error(`Refusing to auto-update: ${installDir} is a shared directory`);
+  if (!(await isPackagedAppDirectory(installDir))) {
+    log.warn(
+      `resolveInstallTarget: ${installDir} sieht nicht wie ein typischer Paket-Ordner aus — fahre trotzdem fort (Self-Update, Backup wird angelegt).`
+    );
   }
 
   const unexpected = await findUnexpectedInstallEntries(installDir, path.basename(resolvedExePath));
   if (unexpected.length > 0) {
-    throw new Error(
-      `Refusing to auto-update: ${installDir} is not dedicated to the app (found ${unexpected
-        .slice(0, 5)
-        .join(', ')})`
+    log.warn(
+      `resolveInstallTarget: Fremd-Einträge im App-Ordner (${unexpected.slice(0, 5).join(', ')}) — werden mit ins Backup (.goose-previous) verschoben, nicht gelöscht.`
     );
   }
 
