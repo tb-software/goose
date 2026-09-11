@@ -1,4 +1,4 @@
-import { Fragment, memo, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { isEqual } from 'lodash';
 import { defineMessages, useIntl } from '../i18n';
 import GooseMessage from './GooseMessage';
@@ -20,6 +20,33 @@ import type {
 import LoadingGoose from './LoadingGoose';
 import { getModelDisplayName } from './settings/models/predefinedModelsUtils';
 import { deriveMessageRowContexts, type MessageRowContext } from './messageRowContext';
+import { identifyConsecutiveToolCalls } from '../utils/toolCallChaining';
+import { getToolRequests } from '../types/message';
+import ActivityTree from './ActivityTree';
+
+// TB-Software: Titel für eine Aktivitäts-Gruppe billig aus den Werkzeugnamen ableiten
+// (kein LLM-Call). Bsp: "shell×8, text_editor×2".
+function toolNameOf(req: unknown): string {
+  const tc = (req as { toolCall?: { value?: { name?: string }; name?: string } })?.toolCall;
+  const raw = tc?.value?.name ?? tc?.name ?? 'tool';
+  // "extension__tool" -> "tool"; "developer__shell" -> "shell".
+  const parts = String(raw).split('__');
+  return parts[parts.length - 1];
+}
+function buildActivityTitle(chainIndices: number[], messages: Message[]): string {
+  const counts = new Map<string, number>();
+  for (const i of chainIndices) {
+    for (const req of getToolRequests(messages[i])) {
+      const name = toolNameOf(req);
+      counts.set(name, (counts.get(name) ?? 0) + 1);
+    }
+  }
+  const parts = [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([n, c]) => (c > 1 ? `${n}×${c}` : n));
+  return parts.join(', ') || 'Werkzeuge';
+}
 
 const i18n = defineMessages({
   loadingMessages: {
@@ -240,8 +267,8 @@ export default function ProgressiveMessageList({
 
   const rowContexts = useMemo(() => deriveMessageRowContexts(messages), [messages]);
   const messagesToRender = messages.slice(0, renderedCount);
-  const messageRows = messagesToRender
-    .map((message, index) => {
+
+  const buildRow = (message: Message, index: number): ReactNode => {
       if (!message.metadata.userVisible) return null;
       if (renderMessage) return renderMessage(message, index);
 
@@ -286,8 +313,46 @@ export default function ProgressiveMessageList({
           toolNotifications={toolNotifications}
         />
       );
-    })
-    .filter(Boolean);
+  };
+
+  // TB-Software: aufeinanderfolgende Werkzeug-Ketten (>=2 sichtbare Schritte) zu EINER
+  // ausklappbaren Aktivitäts-Gruppe bündeln; alles andere normal rendern.
+  const chains = identifyConsecutiveToolCalls(messagesToRender);
+  const chainByIndex = new Map<number, number[]>();
+  for (const chain of chains) {
+    if (chain.length >= 2) {
+      for (const i of chain) chainByIndex.set(i, chain);
+    }
+  }
+  const renderedChains = new Set<number>();
+  const messageRows: ReactNode[] = [];
+  messagesToRender.forEach((message, index) => {
+    const chain = chainByIndex.get(index);
+    if (chain) {
+      const anchor = chain[0];
+      if (renderedChains.has(anchor)) return;
+      renderedChains.add(anchor);
+      const rows = chain
+        .map((i) => buildRow(messagesToRender[i], i))
+        .filter((r): r is ReactNode => r != null && r !== false);
+      if (rows.length >= 2) {
+        messageRows.push(
+          <ActivityTree
+            key={`activity-${anchor}`}
+            count={rows.length}
+            title={buildActivityTitle(chain, messagesToRender)}
+          >
+            {rows}
+          </ActivityTree>
+        );
+      } else {
+        rows.forEach((r) => messageRows.push(r));
+      }
+      return;
+    }
+    const row = buildRow(message, index);
+    if (row) messageRows.push(row);
+  });
 
   return (
     <>

@@ -251,7 +251,13 @@ function hasBrokenConfigArg(args: unknown): boolean {
   return Array.isArray(args) && args.some((a) => typeof a === 'string' && a.startsWith('--config='));
 }
 
-// Findet einen vorhandenen LenaX-DB-Extension-Eintrag (per Key oder per Name).
+// KANONISCHER Extension-Key. Die App-UI leitet den Key aus dem NAMEN ab: nameToKey('LenaX-DB')
+// entfernt nur Whitespace + lowercase -> "lenax-db" (MIT Bindestrich!). Ein Eintrag unter einem
+// anderen Key (z. B. dem alten "lenax_db" mit Unterstrich) wird von set-enabled NICHT gefunden
+// („Extension 'lenax-db' not found"). Deshalb MUSS der Key exakt nameToKey('LenaX-DB') sein.
+const LENAX_KEY = 'lenax-db';
+
+// Findet einen vorhandenen LenaX-DB-Extension-Eintrag (kanonischer Key, Alt-Key, dann per Name).
 function findLenaxEntry(
   parsed: unknown
 ): { key: string; entry: { cmd?: string; timeout?: number; args?: unknown } } | null {
@@ -261,7 +267,8 @@ function findLenaxEntry(
     }
   )?.extensions;
   if (!exts || typeof exts !== 'object') return null;
-  if (exts.lenax_db) return { key: 'lenax_db', entry: exts.lenax_db };
+  if (exts[LENAX_KEY]) return { key: LENAX_KEY, entry: exts[LENAX_KEY] };
+  if (exts.lenax_db) return { key: 'lenax_db', entry: exts.lenax_db }; // Alt-Key (Unterstrich)
   for (const [key, entry] of Object.entries(exts)) {
     if (typeof entry?.name === 'string' && /lenax/i.test(entry.name)) {
       return { key, entry };
@@ -284,27 +291,43 @@ export function ensureLenaxDbExtension(
     const existing = findLenaxEntry(parsed);
 
     if (existing) {
-      // Vorhandenen Eintrag NUR reparieren, wenn er kaputt ist (cmd-Pfad existiert nicht)
-      // und wir eine gültige exe gefunden haben. Sonst Nutzer-Entscheidung respektieren.
+      // MIGRATION: Liegt der Eintrag unter einem falschen Key (z. B. Alt-Key „lenax_db" mit
+      // Unterstrich), wird er unter dem kanonischen Key „lenax-db" neu geschrieben und der alte
+      // Key entfernt -> die UI (set-enabled 'lenax-db') findet ihn wieder.
+      const keyWrong = existing.key !== LENAX_KEY;
       const cmd = String(existing.entry.cmd ?? '').trim();
       const cmdBroken = !cmd || !fs.existsSync(cmd);
       const argsBroken = hasBrokenConfigArg(existing.entry.args);
-      if (found && (cmdBroken || argsBroken)) {
+      if (keyWrong || (found && (cmdBroken || argsBroken))) {
         const doc = yaml.parseDocument(raw);
-        if (cmdBroken) {
-          doc.setIn(['extensions', existing.key, 'cmd'], found.exe);
-          doc.setIn(['extensions', existing.key, 'args'], lenaxArgs(found.config));
-        } else if (argsBroken) {
-          // cmd ist ok, nur die `--config=`-Args-Form korrigieren (auf positional).
-          doc.setIn(['extensions', existing.key, 'args'], lenaxArgs(found.config));
-        }
-        if (existing.entry.timeout == null) {
-          doc.setIn(['extensions', existing.key, 'timeout'], 300);
+        if (keyWrong) {
+          // Bestehenden Eintrag übernehmen (mit ggf. reparierter cmd/args), unter richtigem Key.
+          const migrated: Record<string, unknown> = { ...(existing.entry as object) };
+          if (found && cmdBroken) {
+            migrated.cmd = found.exe;
+            migrated.args = lenaxArgs(found.config);
+          } else if (found && argsBroken) {
+            migrated.args = lenaxArgs(found.config);
+          }
+          if (migrated.timeout == null) migrated.timeout = 300;
+          doc.setIn(['extensions', LENAX_KEY], migrated);
+          doc.deleteIn(['extensions', existing.key]);
+          log.info(`[TB] LenaX-DB MCP-Key migriert: ${existing.key} -> ${LENAX_KEY}`);
+        } else {
+          if (cmdBroken) {
+            doc.setIn(['extensions', existing.key, 'cmd'], found!.exe);
+            doc.setIn(['extensions', existing.key, 'args'], lenaxArgs(found!.config));
+          } else if (argsBroken) {
+            doc.setIn(['extensions', existing.key, 'args'], lenaxArgs(found!.config));
+          }
+          if (existing.entry.timeout == null) {
+            doc.setIn(['extensions', existing.key, 'timeout'], 300);
+          }
+          log.info(
+            `[TB] LenaX-DB MCP-Eintrag repariert (${existing.key}; cmdBroken=${cmdBroken}, argsBroken=${argsBroken})`
+          );
         }
         fs.writeFileSync(cfgFile, doc.toString());
-        log.info(
-          `[TB] LenaX-DB MCP-Eintrag repariert (${existing.key}; cmdBroken=${cmdBroken}, argsBroken=${argsBroken})`
-        );
       }
       return;
     }
@@ -320,9 +343,9 @@ export function ensureLenaxDbExtension(
     const exe = found ? found.exe : LENAXDB_FALLBACK_EXE;
     const cfg = found ? found.config : null;
 
-    // Neuen Eintrag anfügen, Kommentare/Reihenfolge der bestehenden Config erhalten.
+    // Neuen Eintrag anfügen (kanonischer Key = nameToKey('LenaX-DB') = 'lenax-db').
     const doc = yaml.parseDocument(raw);
-    doc.setIn(['extensions', 'lenax_db'], {
+    doc.setIn(['extensions', LENAX_KEY], {
       enabled: !!found,
       type: 'stdio',
       name: 'LenaX-DB',
