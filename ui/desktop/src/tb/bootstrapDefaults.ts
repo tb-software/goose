@@ -83,6 +83,18 @@ export function ensureTbDefaults(): void {
   if (!process.env.OPENAI_BASE_PATH) {
     process.env.OPENAI_BASE_PATH = 'apps/proxy/gericom/jumpserver.ashx/v1/chat/completions';
   }
+  // TB-Software: Resilientes Retry gegen Proxy-Rate-Limit („max N concurrent" -> HTTP 429).
+  // Der Backend-openai-Provider liest diese ENV (Default im Rust: 6/2000/2.0/45000). Statt hartem
+  // Abbruch wird geduldig gewartet, bis ein Slot frei wird. Übersteuerbar durch den Starter.
+  if (!process.env.OPENAI_MAX_RETRIES) process.env.OPENAI_MAX_RETRIES = '6';
+  if (!process.env.OPENAI_INITIAL_RETRY_INTERVAL_MS) {
+    process.env.OPENAI_INITIAL_RETRY_INTERVAL_MS = '2000';
+  }
+  if (!process.env.OPENAI_BACKOFF_MULTIPLIER) process.env.OPENAI_BACKOFF_MULTIPLIER = '2';
+  if (!process.env.OPENAI_MAX_RETRY_INTERVAL_MS) {
+    process.env.OPENAI_MAX_RETRY_INTERVAL_MS = '45000';
+  }
+
   if (!process.env.OPENAI_CUSTOM_HEADERS) {
     // Pflicht-Client-Identity-Header (sonst nur IP im #routes-Monitor).
     const ver = (() => {

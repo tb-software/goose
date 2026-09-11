@@ -1,6 +1,6 @@
 use super::api_client::ApiClient;
 use super::base::{ConfigKey, ModelInfo, Provider, ProviderMetadata};
-use super::retry::ProviderRetry;
+use super::retry::{ProviderRetry, RetryConfig};
 use crate::api_client::{AuthMethod, TlsConfig};
 use crate::conversation::message::Message;
 use crate::conversation::token_usage::{CostSource, ProviderUsage};
@@ -702,6 +702,28 @@ impl ProviderDescriptor for OpenAiProvider {
 impl Provider for OpenAiProvider {
     fn get_name(&self) -> &str {
         &self.name
+    }
+
+    // TB-Software: Resilientes Retry für Rate-Limits (u. a. Proxy „Too many concurrent requests
+    // (max N)" -> HTTP 429). Der Default (3 Retries, ~7 s) brach hart ab, wenn die Slots durch
+    // token-schwere Requests länger belegt waren. Jetzt geduldiger + env-übersteuerbar.
+    // Nur transiente Fehler (RateLimit/Server/Network) werden ohnehin wiederholt, keine 4xx.
+    fn retry_config(&self) -> RetryConfig {
+        fn env_usize(k: &str, d: usize) -> usize {
+            std::env::var(k).ok().and_then(|v| v.parse().ok()).unwrap_or(d)
+        }
+        fn env_u64(k: &str, d: u64) -> u64 {
+            std::env::var(k).ok().and_then(|v| v.parse().ok()).unwrap_or(d)
+        }
+        fn env_f64(k: &str, d: f64) -> f64 {
+            std::env::var(k).ok().and_then(|v| v.parse().ok()).unwrap_or(d)
+        }
+        RetryConfig::new(
+            env_usize("OPENAI_MAX_RETRIES", 6),
+            env_u64("OPENAI_INITIAL_RETRY_INTERVAL_MS", 2000),
+            env_f64("OPENAI_BACKOFF_MULTIPLIER", 2.0),
+            env_u64("OPENAI_MAX_RETRY_INTERVAL_MS", 45000),
+        )
     }
 
     async fn refresh_credentials(&self) -> Result<(), ProviderError> {
