@@ -301,14 +301,18 @@ async function writeSwapScript(options: {
     // Get-ChildItem enumerates them via -LiteralPath so paths containing glob metacharacters
     // are not expanded, and -Force keeps hidden entries.
     const installedExe = powershellQuote(path.join(targetPath, executableRelativePath));
+    const relaunchLine = `Start-Process -FilePath ${powershellQuote(relaunchPath)}`;
     const script = [
       `$ErrorActionPreference = 'Continue'`,
+      `$target = ${powershellQuote(targetPath)}`,
+      `$backup = ${powershellQuote(backupPath)}`,
+      `$payload = ${powershellQuote(payloadPath)}`,
+      `$installedExe = ${installedExe}`,
       // Start-Transcript silently produces no file when it is unavailable, so the log is written
       // directly to keep a failing detached script diagnosable.
       `function Write-Log($message) { try { Add-Content -LiteralPath ${powershellQuote(logPath)} -Value $message } catch {} }`,
       `Write-Log "swap starting for pid ${pid}"`,
-      // A process object reports HasExited once the app is gone, which distinguishes a live app
-      // from the handle that lingers briefly after exit.
+      // 1) Auf das Beenden der Haupt-App warten.
       `$attempt = 0`,
       `while ($attempt -lt 120) {`,
       `  $proc = Get-Process -Id ${pid} -ErrorAction SilentlyContinue`,
@@ -316,29 +320,48 @@ async function writeSwapScript(options: {
       `  Start-Sleep -Milliseconds 500`,
       `  $attempt = $attempt + 1`,
       `}`,
-      // Replacing an install while it runs corrupts it, so a stalled quit aborts the swap.
-      `$proc = Get-Process -Id ${pid} -ErrorAction SilentlyContinue`,
-      `if ($proc -and -not $proc.HasExited) {`,
-      `  Write-Log 'app is still running; aborting update'`,
+      // 2) KRITISCH: alle Rest-Prozesse aus dem Zielordner beenden (gebündeltes Backend goose.exe
+      //    unter resources\bin\, crashpad/GPU-Helfer, hängende App-Prozesse). Sonst sind Dateien im
+      //    Ordner gesperrt und Move-Item scheitert -> kein Swap, kein Neustart (genau der Bug).
+      `$targetLower = $target.ToLower().TrimEnd('\\') + '\\'`,
+      `for ($k = 0; $k -lt 30; $k++) {`,
+      `  $locking = Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.ToLower().StartsWith($targetLower) }`,
+      `  if (-not $locking) { break }`,
+      `  Write-Log ('stopping locking procs: ' + (($locking | ForEach-Object { $_.ProcessName } | Select-Object -Unique) -join ','))`,
+      `  $locking | ForEach-Object { try { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue } catch {} }`,
+      `  Start-Sleep -Milliseconds 400`,
+      `}`,
+      // 3) Alten Ordner beiseite schieben — mit Wiederholung, falls Handles langsam freigeben.
+      `Remove-Item -LiteralPath $backup -Recurse -Force -ErrorAction SilentlyContinue`,
+      `$moved = $false`,
+      `for ($m = 0; $m -lt 20; $m++) {`,
+      `  Move-Item -LiteralPath $target -Destination $backup -Force -ErrorAction SilentlyContinue`,
+      `  if (-not (Test-Path -LiteralPath $target)) { $moved = $true; break }`,
+      `  Start-Sleep -Milliseconds 500`,
+      `}`,
+      `if (-not $moved) {`,
+      `  Write-Log 'could not move install aside (locked) — restoring + relaunch old'`,
+      `  if (Test-Path -LiteralPath $backup) { Move-Item -LiteralPath $backup -Destination $target -Force -ErrorAction SilentlyContinue }`,
+      // Auch bei Fehlschlag NIE ohne App zurücklassen (Nutzer war ja mitten im Update).
+      ...(relaunch ? [`  ${relaunchLine}`] : []),
       `  exit 1`,
       `}`,
-      `Write-Log 'app has exited; swapping install'`,
-      `Remove-Item -LiteralPath ${powershellQuote(backupPath)} -Recurse -Force -ErrorAction SilentlyContinue`,
-      `Move-Item -LiteralPath ${powershellQuote(targetPath)} -Destination ${powershellQuote(backupPath)} -Force`,
-      `if (Test-Path -LiteralPath ${powershellQuote(targetPath)}) { throw 'Could not move previous install aside' }`,
+      `Write-Log 'install moved aside; copying payload'`,
       `try {`,
-      `  New-Item -ItemType Directory -Path ${powershellQuote(targetPath)} -Force -ErrorAction Stop | Out-Null`,
-      `  $payloadEntries = (Get-ChildItem -LiteralPath ${powershellQuote(payloadPath)} -Force).FullName`,
-      `  Copy-Item -LiteralPath $payloadEntries -Destination ${powershellQuote(targetPath)} -Recurse -Force -ErrorAction Stop`,
+      `  New-Item -ItemType Directory -Path $target -Force -ErrorAction Stop | Out-Null`,
+      `  $payloadEntries = (Get-ChildItem -LiteralPath $payload -Force).FullName`,
+      `  Copy-Item -LiteralPath $payloadEntries -Destination $target -Recurse -Force -ErrorAction Stop`,
       // A valid archive can still be packaged without the executable, so the backup is only
       // discarded once the copied payload is confirmed to be a runnable install.
-      `  if (-not (Test-Path -LiteralPath ${installedExe})) { throw 'Updated install is missing its executable' }`,
-      `  Remove-Item -LiteralPath ${powershellQuote(backupPath)} -Recurse -Force -ErrorAction SilentlyContinue`,
+      `  if (-not (Test-Path -LiteralPath $installedExe)) { throw 'Updated install is missing its executable' }`,
+      `  Remove-Item -LiteralPath $backup -Recurse -Force -ErrorAction SilentlyContinue`,
+      `  Write-Log 'swap ok'`,
       `} catch {`,
-      `  Remove-Item -LiteralPath ${powershellQuote(targetPath)} -Recurse -Force -ErrorAction SilentlyContinue`,
-      `  Move-Item -LiteralPath ${powershellQuote(backupPath)} -Destination ${powershellQuote(targetPath)} -Force`,
+      `  Write-Log ('swap failed: ' + $_.Exception.Message + ' — rollback')`,
+      `  Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction SilentlyContinue`,
+      `  Move-Item -LiteralPath $backup -Destination $target -Force -ErrorAction SilentlyContinue`,
       `}`,
-      ...(relaunch ? [`Start-Process -FilePath ${powershellQuote(relaunchPath)}`] : ['Write-Log \'swap done (no relaunch)\'']),
+      ...(relaunch ? [relaunchLine] : [`Write-Log 'swap done (no relaunch)'`]),
       `try { Stop-Transcript | Out-Null } catch {}`,
       `Remove-Item -LiteralPath ${powershellQuote(stagingDir)} -Recurse -Force -ErrorAction SilentlyContinue`,
       '',
@@ -347,7 +370,16 @@ async function writeSwapScript(options: {
     await fs.writeFile(scriptPath, script);
     return {
       command: 'powershell.exe',
-      args: ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', scriptPath],
+      args: [
+        '-NoProfile',
+        '-NonInteractive',
+        '-WindowStyle',
+        'Hidden',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-File',
+        scriptPath,
+      ],
     };
   }
 
@@ -401,16 +433,27 @@ async function writeSwapScript(options: {
   return { command: '/bin/sh', args: [scriptPath] };
 }
 
-// Node's detached flag becomes DETACHED_PROCESS on Windows, which leaves the child with no
-// console, and powershell.exe exits before its first statement without one. windowsHide still
-// allocates a console without showing a window, and Windows keeps a child alive after its
-// parent exits, so the swap outlives the quit without detaching. POSIX still detaches so the
-// script survives the app's process group going away.
+// TB-Software: Das Swap-Skript MUSS das Beenden der App überleben. Der frühere Weg
+// (spawn detached:false) wurde beim App-Quit mitbeendet (Konsole/Prozessgruppe) -> das Skript
+// stoppte direkt nach dem Start, es fand kein Tausch/Neustart statt (real reproduziert).
+// Lösung auf Windows: über `cmd /c start` einen EIGENSTÄNDIGEN Prozess mit eigener Konsole
+// starten, der von der App vollständig losgelöst ist. POSIX: detached + eigene Session.
 export function launchSwapScript(swap: SwapCommand): void {
+  if (process.platform === 'win32') {
+    // `start` erwartet als erstes (leeres) Argument den Fenstertitel. windowsHide versteckt das
+    // cmd-Fenster; das per start gestartete powershell läuft losgelöst weiter, auch wenn die App
+    // (und dieses cmd) enden.
+    const child = spawn(
+      'cmd.exe',
+      ['/c', 'start', '""', '/min', swap.command, ...swap.args],
+      { detached: true, stdio: 'ignore', windowsHide: true }
+    );
+    child.unref();
+    return;
+  }
   const child = spawn(swap.command, swap.args, {
-    detached: process.platform !== 'win32',
+    detached: true,
     stdio: 'ignore',
-    windowsHide: true,
   });
   child.unref();
 }
