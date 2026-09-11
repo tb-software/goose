@@ -9,6 +9,7 @@ import { app } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { execFileSync } from 'node:child_process';
 import * as yaml from 'yaml';
 import log from '../utils/logger';
 
@@ -145,28 +146,78 @@ interface LenaxDbLocation {
   config: string | null;
 }
 
-// Sucht die lenaxdb-mcp.exe an den üblichen Installationsorten. Override per
-// Umgebungsvariable LENAXDB_MCP_EXE (voller Pfad zur exe).
+// Ermittelt die lenaxdb-mcp.exe aus einem LAUFENDEN LenaX-DB-Prozess (Idee: LenaX-DB läuft als
+// App -> der Programmpfad ist eindeutig ableitbar). Cockpit liegt unter <Wurzel>\cockpit\,
+// die MCP unter <Wurzel>\mcp\. Findet einen der beiden Prozesse -> baut den mcp-Exe-Pfad.
+function lenaxExeFromRunningProcess(): string | null {
+  if (process.platform !== 'win32') return null;
+  try {
+    // PowerShell: Pfade laufender LenaX-DB-Prozesse (Manager/MCP) holen.
+    const out = execFileSync(
+      'powershell.exe',
+      [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        "Get-Process LenaXDB.Manager,lenaxdb-mcp -ErrorAction SilentlyContinue | ForEach-Object { $_.Path } | Where-Object { $_ }",
+      ],
+      { encoding: 'utf8', timeout: 4000, windowsHide: true }
+    );
+    const paths = out
+      .split(/\r?\n/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    for (const p of paths) {
+      const lower = p.toLowerCase();
+      if (lower.endsWith('\\mcp\\lenaxdb-mcp.exe') && fs.existsSync(p)) return p;
+      // Cockpit gefunden -> Wurzel = parent(cockpit), mcp-Exe daneben.
+      if (lower.endsWith('\\cockpit\\lenaxdb.manager.exe')) {
+        const root = path.dirname(path.dirname(p));
+        const mcp = path.join(root, 'mcp', 'lenaxdb-mcp.exe');
+        if (fs.existsSync(mcp)) return mcp;
+      }
+    }
+  } catch (e) {
+    log.info('[TB] LenaX-DB-Prozess-Scan fehlgeschlagen (unkritisch)', (e as Error)?.message);
+  }
+  return null;
+}
+
+// Sucht die lenaxdb-mcp.exe: erst statische Installationsorte + Override LENAXDB_MCP_EXE,
+// dann als Fallback über einen LAUFENDEN LenaX-DB-Prozess (robust bei abweichendem Pfad).
 function discoverLenaxDbMcp(): LenaxDbLocation | null {
   const localAppData =
     process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
   const programFiles = process.env.ProgramFiles || 'C:\\Program Files';
+  const programFilesX86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
 
   const candidates = [
     process.env.LENAXDB_MCP_EXE,
     'C:\\_AI\\Applications\\LenaX-DB\\mcp\\lenaxdb-mcp.exe',
+    'D:\\_AI\\Applications\\LenaX-DB\\mcp\\lenaxdb-mcp.exe',
+    'D:\\_AI\\Programs\\LenaX-DB\\mcp\\lenaxdb-mcp.exe',
     path.join(localAppData, 'Programs', 'LenaX-DB', 'mcp', 'lenaxdb-mcp.exe'),
     path.join(localAppData, 'LenaX-DB', 'mcp', 'lenaxdb-mcp.exe'),
     path.join(programFiles, 'LenaX-DB', 'mcp', 'lenaxdb-mcp.exe'),
+    path.join(programFilesX86, 'LenaX-DB', 'mcp', 'lenaxdb-mcp.exe'),
   ].filter((c): c is string => !!c);
 
-  const exe = candidates.find((c) => {
+  let exe = candidates.find((c) => {
     try {
       return fs.existsSync(c) && fs.statSync(c).isFile();
     } catch {
       return false;
     }
   });
+
+  // Fallback: aus laufendem Prozess (deckt beliebige Installationspfade ab).
+  if (!exe) {
+    const fromProc = lenaxExeFromRunningProcess();
+    if (fromProc) {
+      log.info(`[TB] LenaX-DB MCP über laufenden Prozess gefunden: ${fromProc}`);
+      exe = fromProc;
+    }
+  }
   if (!exe) return null;
 
   // Config-Pfad (gemeinsam mit dem Cockpit). Fehlt sie, startet die MCP mit Default-Config.
@@ -251,18 +302,21 @@ export function ensureLenaxDbExtension(
       return;
     }
 
-    // Gefunden -> echten Pfad; sonst (nur beim Werksreset) Platzhalter-Pfad, damit die Extension
-    // aktiv/sichtbar ist (Nutzer-Auswahl: Auto-Erkennung + Fallback).
+    // Gefunden -> echter Pfad + AKTIV (verbunden). Nicht gefunden -> Platzhalter-Pfad, aber
+    // DEAKTIVIERT: so ist die Extension sichtbar/konfigurierbar, Goose versucht aber NICHT den
+    // nicht existierenden Prozess zu starten (das verursachte den „Kopierfehler"/Ladefehler).
     const exe = found ? found.exe : LENAXDB_FALLBACK_EXE;
     const cfg = found ? found.config : null;
 
     // Neuen Eintrag anfügen, Kommentare/Reihenfolge der bestehenden Config erhalten.
     const doc = yaml.parseDocument(raw);
     doc.setIn(['extensions', 'lenax_db'], {
-      enabled: true,
+      enabled: !!found,
       type: 'stdio',
       name: 'LenaX-DB',
-      description: 'LenaX-DB — lokale Wissens-/RAG-Datenbank (Dateisystem-Index)',
+      description: found
+        ? 'LenaX-DB — lokale Wissens-/RAG-Datenbank (Dateisystem-Index)'
+        : 'LenaX-DB — nicht gefunden. Pfad zur mcp\\lenaxdb-mcp.exe setzen und aktivieren.',
       cmd: exe,
       args: lenaxArgs(cfg),
       // Startaufbau des Embedders (ONNX) kann einige Sekunden dauern -> großzügig.

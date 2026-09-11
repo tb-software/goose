@@ -1,10 +1,30 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import {
+  ChevronDown,
+  ChevronRight,
+  MoreHorizontal,
+  Pencil,
+  Copy,
+  Trash2,
+  Check,
+  Settings2,
+  Tags as TagsIcon,
+} from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useNavigationContext } from './NavigationContext';
 import { useConfig } from '../ConfigContext';
 import { useNavigationSessions } from '../../hooks/useNavigationSessions';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+} from '../ui/dropdown-menu';
+import { useTbTags } from '../../tb/tags/TagContext';
+import TagManagerDialog from '../../tb/tags/TagManagerDialog';
 import {
   NAV_ITEMS,
   SETTINGS_NAV_ITEM,
@@ -14,7 +34,12 @@ import {
 import { AppEvents } from '../../constants/events';
 import { InlineEditText } from '../common/InlineEditText';
 import { SessionIndicators } from '../SessionIndicators';
-import { acpRenameSession, type SessionListItem } from '../../acp/sessions';
+import {
+  acpRenameSession,
+  acpForkSession,
+  acpDeleteSession,
+  type SessionListItem,
+} from '../../acp/sessions';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/Tooltip';
 import { formatMessageTimestamp } from '../../utils/timeUtils';
 import { cn } from '../../utils';
@@ -115,6 +140,8 @@ interface SessionRowProps {
   status: SessionStatus | undefined;
   onClick: () => void;
   onRenamed: () => void;
+  onChanged: () => void; // nach Löschen/Duplizieren neu laden
+  onManageTags: () => void; // öffnet den Tag-Manager-Dialog
 }
 
 const formatTimestamp = (value?: string): string | null => {
@@ -164,10 +191,21 @@ const SessionTooltipContent: React.FC<SessionTooltipContentProps> = ({ session, 
   );
 };
 
-const SessionRow: React.FC<SessionRowProps> = ({ session, active, status, onClick, onRenamed }) => {
+const SessionRow: React.FC<SessionRowProps> = ({
+  session,
+  active,
+  status,
+  onClick,
+  onRenamed,
+  onChanged,
+  onManageTags,
+}) => {
   const intl = useIntl();
   const [isEditing, setIsEditing] = useState(false);
   const [tooltipOpen, setTooltipOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const { tags, tagsForChat, toggleChatTag } = useTbTags();
+  const chatTags = tagsForChat(session.id);
   const isStreaming = status?.streamState === 'streaming';
   const hasError = status?.streamState === 'error';
   const hasUnread = status?.hasUnreadActivity ?? false;
@@ -180,17 +218,57 @@ const SessionRow: React.FC<SessionRowProps> = ({ session, active, status, onClic
         ? intl.formatMessage(i18n.statusUnread)
         : intl.formatMessage(i18n.statusIdle);
 
+  const handleDuplicate = async () => {
+    setMenuOpen(false);
+    try {
+      await acpForkSession(session.id);
+      onChanged();
+    } catch (e) {
+      console.error('Duplizieren fehlgeschlagen', e);
+    }
+  };
+
+  const handleDelete = async () => {
+    setMenuOpen(false);
+    const ok = window.confirm(
+      `Chat „${session.name || intl.formatMessage(i18n.untitledSession)}" wirklich löschen? Das kann nicht rückgängig gemacht werden.`
+    );
+    if (!ok) return;
+    try {
+      await acpDeleteSession(session.id);
+      onChanged();
+    } catch (e) {
+      console.error('Löschen fehlgeschlagen', e);
+    }
+  };
+
   return (
-    <Tooltip open={tooltipOpen && !isEditing} onOpenChange={setTooltipOpen} delayDuration={400}>
+    <Tooltip open={tooltipOpen && !isEditing && !menuOpen} onOpenChange={setTooltipOpen} delayDuration={400}>
       <TooltipTrigger asChild>
         <div
           onClick={() => !isEditing && onClick()}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setMenuOpen(true);
+          }}
           className={cn(
-            'flex items-center gap-2 px-3 py-1.5 rounded-full cursor-pointer text-sm',
+            'group/row flex items-center gap-2 px-3 py-1.5 rounded-full cursor-pointer text-sm',
             'hover:bg-background-tertiary/60 transition-colors',
             active && 'bg-background-tertiary'
           )}
         >
+          {chatTags.length > 0 && (
+            <span className="flex items-center gap-0.5 flex-shrink-0">
+              {chatTags.slice(0, 3).map((t) => (
+                <span
+                  key={t.id}
+                  title={t.note ? `${t.name} — ${t.note}` : t.name}
+                  className="w-2 h-2 rounded-full"
+                  style={{ backgroundColor: t.color }}
+                />
+              ))}
+            </span>
+          )}
           <InlineEditText
             value={session.name}
             onSave={async (newName) => {
@@ -211,6 +289,73 @@ const SessionRow: React.FC<SessionRowProps> = ({ session, active, status, onClic
             onEditEnd={() => setIsEditing(false)}
           />
           <SessionIndicators isStreaming={isStreaming} hasUnread={hasUnread} hasError={hasError} />
+          <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+            <DropdownMenuTrigger asChild>
+              <button
+                onClick={(e) => e.stopPropagation()}
+                className="flex-shrink-0 p-0.5 rounded text-text-tertiary hover:text-text-primary opacity-60 hover:opacity-100"
+                title="Aktionen"
+                aria-label="Chat-Aktionen"
+              >
+                <MoreHorizontal className="w-4 h-4" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-52" onClick={(e) => e.stopPropagation()}>
+              <DropdownMenuItem
+                onSelect={() => {
+                  setMenuOpen(false);
+                  setTimeout(() => setIsEditing(true), 0);
+                }}
+              >
+                <Pencil className="w-4 h-4 mr-2" /> Umbenennen
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={handleDuplicate}>
+                <Copy className="w-4 h-4 mr-2" /> Duplizieren
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-text-tertiary">
+                Tags
+              </DropdownMenuLabel>
+              {tags.length === 0 ? (
+                <div className="px-2 py-1 text-xs text-text-tertiary">Noch keine Tags</div>
+              ) : (
+                tags.map((t) => {
+                  const assigned = chatTags.some((c) => c.id === t.id);
+                  return (
+                    <DropdownMenuItem
+                      key={t.id}
+                      onSelect={(e) => {
+                        e.preventDefault();
+                        toggleChatTag(session.id, t.id);
+                      }}
+                    >
+                      <span
+                        className="w-2.5 h-2.5 rounded-full mr-2 flex-shrink-0"
+                        style={{ backgroundColor: t.color }}
+                      />
+                      <span className="flex-1 truncate">{t.name}</span>
+                      {assigned && <Check className="w-3.5 h-3.5 ml-2 flex-shrink-0" />}
+                    </DropdownMenuItem>
+                  );
+                })
+              )}
+              <DropdownMenuItem
+                onSelect={() => {
+                  setMenuOpen(false);
+                  onManageTags();
+                }}
+              >
+                <Settings2 className="w-4 h-4 mr-2" /> Tags verwalten…
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onSelect={handleDelete}
+                className="text-red-600 focus:text-red-600 focus:bg-red-50 dark:focus:bg-red-900/20"
+              >
+                <Trash2 className="w-4 h-4 mr-2" /> Löschen
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </TooltipTrigger>
       <TooltipContent side="right" align="start" className="max-w-xs text-left">
@@ -304,6 +449,71 @@ export const Navigation: React.FC<{ className?: string }> = ({ className }) => {
     });
   }, []);
 
+  // TB-Software: Tag-Ansicht (Chats nach Tags gruppiert), Tag-Manager, Recency-Sortierung.
+  const { tags: allTags, chatTags: allChatTags } = useTbTags();
+  const [tagView, setTagView] = useState(false);
+  const [tagManagerOpen, setTagManagerOpen] = useState(false);
+  const [collapsedTags, setCollapsedTags] = useState<Set<string>>(new Set());
+  const toggleTagCollapsed = useCallback((id: string) => {
+    setCollapsedTags((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const sessionTime = useCallback(
+    (s: SessionListItem) =>
+      Date.parse(s.lastMessageAt ?? s.updatedAt ?? s.createdAt ?? '') || 0,
+    []
+  );
+
+  // Gruppen: je Tag (nur mit Chats) + „Ohne Tag". Innerhalb: zuletzt bearbeitet oben.
+  // Gruppen selbst nach jüngstem Chat sortiert (aktive Tags wandern nach oben).
+  const tagGroups = useMemo(() => {
+    const groups: {
+      id: string;
+      label: string;
+      color?: string;
+      note?: string;
+      sessions: SessionListItem[];
+    }[] = [];
+    for (const tag of allTags) {
+      const list = recentSessions.filter((s) => (allChatTags[s.id] ?? []).includes(tag.id));
+      if (list.length) {
+        list.sort((a, b) => sessionTime(b) - sessionTime(a));
+        groups.push({ id: tag.id, label: tag.name, color: tag.color, note: tag.note, sessions: list });
+      }
+    }
+    const untagged = recentSessions.filter((s) => !(allChatTags[s.id]?.length));
+    if (untagged.length) {
+      untagged.sort((a, b) => sessionTime(b) - sessionTime(a));
+      groups.push({ id: '__untagged__', label: 'Ohne Tag', sessions: untagged });
+    }
+    groups.sort((a, b) => sessionTime(b.sessions[0]) - sessionTime(a.sessions[0]));
+    return groups;
+  }, [allTags, allChatTags, recentSessions, sessionTime]);
+
+  const renderSessionRow = useCallback(
+    (session: SessionListItem) => (
+      <SessionRow
+        key={session.id}
+        session={session}
+        active={session.id === activeSessionId}
+        status={sessionStatuses.get(session.id)}
+        onClick={() => {
+          clearUnread(session.id);
+          handleSessionClick(session.id);
+        }}
+        onRenamed={fetchSessions}
+        onChanged={fetchSessions}
+        onManageTags={() => setTagManagerOpen(true)}
+      />
+    ),
+    [activeSessionId, sessionStatuses, clearUnread, handleSessionClick, fetchSessions]
+  );
+
   if (!isNavExpanded) return null;
 
   return (
@@ -330,23 +540,74 @@ export const Navigation: React.FC<{ className?: string }> = ({ className }) => {
       </div>
 
       <div className="flex-1 min-h-0 flex flex-col mt-3">
-        <button
-          onClick={() => setIsChatsExpanded((v) => !v)}
-          className="flex items-center gap-1 px-4 py-1 text-xs font-semibold uppercase tracking-wider text-text-secondary hover:text-text-primary transition-colors self-start"
-        >
-          {isChatsExpanded ? (
-            <ChevronDown className="w-3 h-3" />
-          ) : (
-            <ChevronRight className="w-3 h-3" />
-          )}
-          <span>{intl.formatMessage(i18n.chats)}</span>
-        </button>
+        <div className="flex items-center pr-2">
+          <button
+            onClick={() => setIsChatsExpanded((v) => !v)}
+            className="flex items-center gap-1 px-4 py-1 text-xs font-semibold uppercase tracking-wider text-text-secondary hover:text-text-primary transition-colors self-start flex-1"
+          >
+            {isChatsExpanded ? (
+              <ChevronDown className="w-3 h-3" />
+            ) : (
+              <ChevronRight className="w-3 h-3" />
+            )}
+            <span>{intl.formatMessage(i18n.chats)}</span>
+          </button>
+          {/* TB-Software: Umschalter Projekt/Tags + Tag-Manager. */}
+          <button
+            onClick={() => setTagView((v) => !v)}
+            className={cn(
+              'p-1 rounded text-text-tertiary hover:text-text-primary transition-colors',
+              tagView && 'text-text-primary bg-background-tertiary'
+            )}
+            title={tagView ? 'Nach Projekt gruppieren' : 'Nach Tags gruppieren'}
+            aria-label="Gruppierung umschalten"
+          >
+            <TagsIcon className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => setTagManagerOpen(true)}
+            className="p-1 rounded text-text-tertiary hover:text-text-primary transition-colors"
+            title="Tags verwalten"
+            aria-label="Tags verwalten"
+          >
+            <Settings2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
         {isChatsExpanded && (
           <div className="flex-1 min-h-0 overflow-y-auto px-2 pb-2 mt-1">
             {recentSessions.length === 0 ? (
               <div className="px-3 py-2 text-xs text-text-secondary">
                 {intl.formatMessage(i18n.noChats)}
               </div>
+            ) : tagView ? (
+              tagGroups.map((group) => {
+                const isCollapsed = collapsedTags.has(group.id);
+                return (
+                  <React.Fragment key={group.id}>
+                    <button
+                      onClick={() => toggleTagCollapsed(group.id)}
+                      aria-expanded={!isCollapsed}
+                      className="flex items-center gap-1 w-full px-3 pt-2 pb-0.5 text-[10px] uppercase tracking-wider text-text-tertiary hover:text-text-secondary transition-colors"
+                      title={group.note || group.label}
+                    >
+                      {isCollapsed ? (
+                        <ChevronRight className="w-3 h-3 flex-shrink-0" />
+                      ) : (
+                        <ChevronDown className="w-3 h-3 flex-shrink-0" />
+                      )}
+                      {group.color && (
+                        <span
+                          className="w-2 h-2 rounded-full flex-shrink-0"
+                          style={{ backgroundColor: group.color }}
+                        />
+                      )}
+                      <span className="truncate">{group.label}</span>
+                      <span className="ml-1 text-text-tertiary/70">{group.sessions.length}</span>
+                    </button>
+                    {!isCollapsed && group.sessions.map((session) => renderSessionRow(session))}
+                  </React.Fragment>
+                );
+              })
             ) : recentSessionsByProject.length > 1 ? (
               recentSessionsByProject.map((group: ProjectGroup) => {
                 const isCollapsed = collapsedProjects.has(group.path);
@@ -365,41 +626,17 @@ export const Navigation: React.FC<{ className?: string }> = ({ className }) => {
                       )}
                       <span className="truncate">{group.label}</span>
                     </button>
-                    {!isCollapsed &&
-                      group.sessions.map((session) => (
-                        <SessionRow
-                          key={session.id}
-                          session={session}
-                          active={session.id === activeSessionId}
-                          status={sessionStatuses.get(session.id)}
-                          onClick={() => {
-                            clearUnread(session.id);
-                            handleSessionClick(session.id);
-                          }}
-                          onRenamed={fetchSessions}
-                        />
-                      ))}
+                    {!isCollapsed && group.sessions.map((session) => renderSessionRow(session))}
                   </React.Fragment>
                 );
               })
             ) : (
-              recentSessions.map((session) => (
-                <SessionRow
-                  key={session.id}
-                  session={session}
-                  active={session.id === activeSessionId}
-                  status={sessionStatuses.get(session.id)}
-                  onClick={() => {
-                    clearUnread(session.id);
-                    handleSessionClick(session.id);
-                  }}
-                  onRenamed={fetchSessions}
-                />
-              ))
+              recentSessions.map((session) => renderSessionRow(session))
             )}
           </div>
         )}
       </div>
+      <TagManagerDialog open={tagManagerOpen} onOpenChange={setTagManagerOpen} />
 
       <div className="px-2 pt-2 pb-2 border-t border-border-secondary">
         <NavRow

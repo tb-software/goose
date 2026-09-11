@@ -11,6 +11,7 @@ import AnnouncementModal from './components/AnnouncementModal';
 import TelemetryConsentPrompt from './components/TelemetryConsentPrompt';
 import OnboardingGuard from './components/onboarding/OnboardingGuard';
 import RiskConsentGate from './tb/consent/RiskConsentGate';
+import { TbTagProvider } from './tb/tags/TagContext';
 import { createSession } from './sessions';
 import { acpListSessions, acpDeleteSession } from './acp/sessions';
 
@@ -693,11 +694,13 @@ export default function App() {
       <FeaturesProvider>
         <ModelAndProviderProvider>
           <RiskConsentGate>
-            <HashRouter>
-              <AppInner />
-            </HashRouter>
-            <AnnouncementModal />
-            <TelemetryConsentPrompt />
+            <TbTagProvider>
+              <HashRouter>
+                <AppInner />
+              </HashRouter>
+              <AnnouncementModal />
+              <TelemetryConsentPrompt />
+            </TbTagProvider>
           </RiskConsentGate>
         </ModelAndProviderProvider>
       </FeaturesProvider>

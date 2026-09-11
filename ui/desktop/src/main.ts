@@ -32,6 +32,7 @@ import { configureProxy } from './proxy';
 import { startGooseServe } from './gooseServe';
 import { ensureTbDefaults } from './tb/bootstrapDefaults';
 import { registerRiskConsentIpc } from './tb/consent/riskConsent';
+import { registerTbTagsIpc } from './tb/tags/tbTags';
 import {
   backupConfigOnExit,
   resetToFactory,
@@ -487,6 +488,8 @@ ensureTbDefaults();
 
 // TB-Software: IPC für den rechtssicheren Erst-Start-Warnhinweis (3-fach-Bestätigung + Audit).
 registerRiskConsentIpc();
+// TB-Software: IPC für den Chat-Tag-Manager (Milestone [10]).
+registerTbTagsIpc();
 
 app.whenReady().then(() => {
   appConfig.GOOSE_LOCALE = getConfiguredGooseLocale();

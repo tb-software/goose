@@ -9,12 +9,18 @@ import {
   FileJson,
   LoaderCircle,
   Share2,
+  Trash2,
 } from 'lucide-react';
 import { toast } from 'react-toastify';
 import { AppEvents } from '../constants/events';
 import { defineMessages, useIntl } from '../i18n';
 import { getDiagnosticsReport } from '../acp/diagnostics';
-import { acpExportSession, acpForkSession, acpRenameSession } from '../acp/sessions';
+import {
+  acpExportSession,
+  acpForkSession,
+  acpRenameSession,
+  acpDeleteSession,
+} from '../acp/sessions';
 import { getSessionDisplayName } from '../sessions';
 import type { Session } from '../types/session';
 import { errorMessage } from '../utils/conversionUtils';
@@ -25,6 +31,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
 
@@ -427,6 +434,22 @@ export default function SessionActionsHeader({
     }
   }, [intl, isDuplicating, session]);
 
+  // TB-Software: aktuelle Sitzung löschen (mit Bestätigung), danach zur Startansicht.
+  const handleDelete = useCallback(async () => {
+    if (!session) return;
+    const ok = window.confirm(
+      `Sitzung „${session.name || 'Unbenannt'}" wirklich löschen? Das kann nicht rückgängig gemacht werden.`
+    );
+    if (!ok) return;
+    try {
+      await acpDeleteSession(session.id);
+      window.dispatchEvent(new CustomEvent(AppEvents.SESSION_CREATED));
+      window.location.hash = '#/';
+    } catch (error) {
+      toast.error('Löschen fehlgeschlagen: ' + errorMessage(error, 'Unknown error'));
+    }
+  }, [session]);
+
   // TB-Software: Chat als JSON in den Export-Ordner schreiben + im Explorer markieren,
   // damit der Nutzer ihn verschicken/teilen kann (verlustfrei, direkt weiterverwendbar).
   const handleExportChat = useCallback(async () => {
@@ -618,6 +641,14 @@ export default function SessionActionsHeader({
                 <Activity className="size-4" />
               )}
               {intl.formatMessage(i18n.viewModelInteractions)}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onSelect={() => void handleDelete()}
+              className="text-red-600 focus:text-red-600 focus:bg-red-50 dark:focus:bg-red-900/20"
+            >
+              <Trash2 className="size-4" />
+              Sitzung löschen
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

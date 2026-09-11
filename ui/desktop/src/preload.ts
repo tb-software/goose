@@ -195,6 +195,15 @@ type ElectronAPI = {
   tbAcceptRiskConsent: (
     acknowledgements: { step: number; text: string; acceptedAt: string }[]
   ) => Promise<{ ok: boolean; record?: unknown; error?: string }>;
+  // TB-Software: Chat-Tag-Manager (Milestone [10]).
+  tbGetTags: () => Promise<{
+    tags: { id: string; name: string; color: string; note?: string }[];
+    chatTags: Record<string, string[]>;
+  }>;
+  tbSaveTags: (data: {
+    tags: { id: string; name: string; color: string; note?: string }[];
+    chatTags: Record<string, string[]>;
+  }) => Promise<{ ok: boolean; error?: string }>;
   tbSearch: (
     roots: string[],
     query: string
@@ -384,6 +393,8 @@ const electronAPI: ElectronAPI = {
   tbAcceptRiskConsent: (
     acknowledgements: { step: number; text: string; acceptedAt: string }[]
   ) => ipcRenderer.invoke('tb-accept-risk-consent', acknowledgements),
+  tbGetTags: () => ipcRenderer.invoke('tb-get-tags'),
+  tbSaveTags: (data: unknown) => ipcRenderer.invoke('tb-save-tags', data),
   tbSearch: (roots: string[], query: string) => ipcRenderer.invoke('tb-search', roots, query),
   tbWatchFile: (path: string) => ipcRenderer.invoke('tb-watch-file', path),
   tbUnwatchFile: () => ipcRenderer.invoke('tb-unwatch-file'),
