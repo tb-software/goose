@@ -90,6 +90,8 @@ use tracing::{debug, error, info, instrument, warn};
 
 const DEFAULT_MAX_TURNS: u32 = 1000;
 const DEFAULT_STOP_HOOK_BLOCK_CAP: u32 = 8;
+// TB-Software: max. verzögerte Auto-Neuversuche bei transienten Stream-Fehlern (Netzwerk/Timeout/5xx).
+const TB_MAX_STREAM_RETRIES: u32 = 3;
 const COMPACTION_PROGRESS_TEXT: &str = "goose is compacting the conversation...";
 const MAX_EMPTY_TURN_RETRIES: u32 = 3;
 const EMPTY_TURN_MESSAGE: &str =
@@ -2701,6 +2703,10 @@ impl Agent {
                 let mut did_recovery_compact_this_iteration = false;
                 let mut exit_chat = false;
                 let mut provider_errored = false;
+                // TB-Software: verzögerter Auto-Neuversuch bei transienten Stream-Fehlern
+                // (Netzwerk/Timeout/5xx) MITTEN im Stream — die with_retry-Schicht deckt nur den
+                // initialen Request ab. Wird bei jedem erfolgreichen Chunk zurückgesetzt.
+                let mut network_retries: u32 = 0;
                 let mut provider_produced_content = false;
                 let mut provider_reached_output_token_limit = false;
                 let mut pending_final_output: Option<String> = None;
@@ -2733,6 +2739,7 @@ impl Agent {
                     match next {
                         Ok((response, usage)) => {
                             compaction_attempts = 0;
+                            network_retries = 0;
 
                             if let Some(ref usage) = usage {
                                 let enriched = self.update_session_metrics(&session_config.id, session_config.schedule_id.clone(), usage, None).await?;
@@ -3314,6 +3321,25 @@ impl Agent {
                             break;
                         }
                         Err(ref provider_err @ ProviderError::NetworkError(_)) => {
+                            // TB-Software: verzögerter Auto-Neuversuch (Netzwerk mitten im Stream).
+                            if network_retries < TB_MAX_STREAM_RETRIES {
+                                network_retries += 1;
+                                let secs = std::cmp::min(2u64.saturating_mul(1u64 << (network_retries - 1)), 30);
+                                warn!("Stream network error, auto-retry {}/{} after {}s: {}", network_retries, TB_MAX_STREAM_RETRIES, secs, provider_err);
+                                yield AgentEvent::Message(Message::assistant().with_text(
+                                    format!("⚠️ Verbindungsproblem — automatischer Neuversuch {}/{} in {}s…", network_retries, TB_MAX_STREAM_RETRIES, secs)
+                                ));
+                                tokio::time::sleep(std::time::Duration::from_secs(secs)).await;
+                                stream = crate::agents::reply_parts::stream_response_from_provider(
+                                    self.provider().await?, model_config.clone(), &session_config.id,
+                                    &system_prompt, conversation.messages(), &tools, &toolshim_tools,
+                                ).await?;
+                                messages_to_add = Conversation::default();
+                                no_tools_called = true;
+                                provider_produced_content = false;
+                                surfaced_thinking_in_turn = false;
+                                continue;
+                            }
                             provider_errored = true;
                             #[cfg(feature = "telemetry")]
                             crate::posthog::emit_error(provider_err.telemetry_type(), &provider_err.to_string());
@@ -3326,6 +3352,33 @@ impl Agent {
                             break;
                         }
                         Err(ref provider_err) => {
+                            // TB-Software: transiente Fehler (5xx / Timeout / Verbindung) ebenfalls
+                            // verzögert neu versuchen; echte 4xx-Fehler NICHT (kein Sinn).
+                            let transient = matches!(provider_err, ProviderError::ServerError(_))
+                                || matches!(provider_err, ProviderError::RequestFailed(m)
+                                    if {
+                                        let ml = m.to_lowercase();
+                                        ml.contains("timed out") || ml.contains("timeout")
+                                            || ml.contains("network") || ml.contains("connection")
+                                    });
+                            if transient && network_retries < TB_MAX_STREAM_RETRIES {
+                                network_retries += 1;
+                                let secs = std::cmp::min(2u64.saturating_mul(1u64 << (network_retries - 1)), 30);
+                                warn!("Stream transient error, auto-retry {}/{} after {}s: {}", network_retries, TB_MAX_STREAM_RETRIES, secs, provider_err);
+                                yield AgentEvent::Message(Message::assistant().with_text(
+                                    format!("⚠️ Vorübergehender Fehler — automatischer Neuversuch {}/{} in {}s…", network_retries, TB_MAX_STREAM_RETRIES, secs)
+                                ));
+                                tokio::time::sleep(std::time::Duration::from_secs(secs)).await;
+                                stream = crate::agents::reply_parts::stream_response_from_provider(
+                                    self.provider().await?, model_config.clone(), &session_config.id,
+                                    &system_prompt, conversation.messages(), &tools, &toolshim_tools,
+                                ).await?;
+                                messages_to_add = Conversation::default();
+                                no_tools_called = true;
+                                provider_produced_content = false;
+                                surfaced_thinking_in_turn = false;
+                                continue;
+                            }
                             provider_errored = true;
                             #[cfg(feature = "telemetry")]
                             crate::posthog::emit_error(provider_err.telemetry_type(), &provider_err.to_string());
