@@ -1,6 +1,14 @@
 import { AppEvents } from '../constants/events';
 import React, { useRef, useState, useEffect, useMemo, useCallback } from 'react';
-import { ArrowUp, Bug, ScrollText } from 'lucide-react';
+import { ArrowUp, Bug, ScrollText, Wrench, FolderOpen, TerminalSquare } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+} from './ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/Tooltip';
 import { Button } from './ui/button';
 import type { View } from '../utils/navigationUtils';
@@ -1770,26 +1778,55 @@ export default function ChatInput({
               onNextChatExtensionDraftChange={onNextChatExtensionDraftChange}
             />
 
-            {/* Right: diagnostics */}
+            {/* TB-Software: Debug-/Werkzeug-Menü — bündelt Diagnose, Kontext verdichten (/compact),
+                Logs, Entwicklertools. Entlastet die Bottom-Leiste (1 Icon statt vieler). */}
             {sessionId && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    onClick={() => {
+              <DropdownMenu>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        shape="round"
+                        className="text-text-primary/70 hover:text-text-primary cursor-pointer transition-colors"
+                      >
+                        <Wrench className="w-4 h-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                  </TooltipTrigger>
+                  <TooltipContent>Werkzeuge & Debug</TooltipContent>
+                </Tooltip>
+                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-text-tertiary">
+                    Werkzeuge & Debug
+                  </DropdownMenuLabel>
+                  <DropdownMenuItem
+                    disabled={!totalTokens || isLoading}
+                    onSelect={() => {
+                      handleSubmit({ msg: MANUAL_COMPACT_TRIGGER, images: [] });
+                    }}
+                  >
+                    <ScrollText className="w-4 h-4 mr-2" /> Chat zusammenfassen (Kontext verdichten)
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() => {
                       trackDiagnosticsOpened();
                       setDiagnosticsOpen(true);
                     }}
-                    variant="ghost"
-                    size="sm"
-                    shape="round"
-                    className="text-text-primary/70 hover:text-text-primary cursor-pointer transition-colors"
                   >
-                    <Bug className="w-4 h-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Generate diagnostics bundle</TooltipContent>
-              </Tooltip>
+                    <Bug className="w-4 h-4 mr-2" /> Diagnose-Bundle erzeugen
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={() => void window.electron.tbOpenLogs?.()}>
+                    <FolderOpen className="w-4 h-4 mr-2" /> Logs-Ordner öffnen
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => void window.electron.tbToggleDevtools?.()}>
+                    <TerminalSquare className="w-4 h-4 mr-2" /> Entwicklertools
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             )}
 
             {/* Right: attach */}

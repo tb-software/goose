@@ -551,6 +551,7 @@ export default function BaseChat({
 
         {/* TB-Software: Metrik-/Statistik-Leiste (Kennzahlen des Chats + Token-Verlauf). */}
         <TbMetricsBar
+          sessionId={sessionId}
           messages={messages as Array<{ role?: string; created?: number }>}
           totalTokens={tokenState?.totalTokens ?? session?.usage?.total_tokens ?? undefined}
           contextLimit={tokenState?.contextLimit}

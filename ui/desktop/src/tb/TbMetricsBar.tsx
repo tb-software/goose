@@ -11,7 +11,13 @@ interface TbMetricsBarProps {
   contextLimit?: number;
   cost?: number;
   sessionStartMs?: number;
+  sessionId?: string;
 }
+
+// TB-Software: Token-Verlauf PRO SITZUNG merken. Vorher startete die Reihe bei jedem
+// Chat-Wechsel/Remount leer -> die Kurve „sah immer gleich aus" (kurze steigende Linie).
+// Jetzt bleibt der echte Verlauf je Sitzung erhalten und zeigt auch /compact-Einbrüche.
+const seriesBySession = new Map<string, number[]>();
 
 const fmtTokens = (n: number): string =>
   n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : String(n);
@@ -79,16 +85,28 @@ export const TbMetricsBar: React.FC<TbMetricsBarProps> = ({
   contextLimit,
   cost,
   sessionStartMs,
+  sessionId,
 }) => {
-  // Kontext-Token-Verlauf mitschneiden (jede Änderung ein Punkt), gedeckelt.
-  const [series, setSeries] = useState<number[]>([]);
+  // Kontext-Token-Verlauf mitschneiden (jede Änderung ein Punkt), gedeckelt + PRO SITZUNG gemerkt.
+  const [series, setSeries] = useState<number[]>(() =>
+    sessionId ? (seriesBySession.get(sessionId) ?? []) : []
+  );
   const lastRef = useRef<number | undefined>(undefined);
+  // Beim Sitzungswechsel den gespeicherten Verlauf laden (nicht auf leer zurücksetzen).
   useEffect(() => {
-    if (typeof totalTokens === 'number' && totalTokens !== lastRef.current) {
+    setSeries(sessionId ? (seriesBySession.get(sessionId) ?? []) : []);
+    lastRef.current = undefined;
+  }, [sessionId]);
+  useEffect(() => {
+    if (typeof totalTokens === 'number' && totalTokens > 0 && totalTokens !== lastRef.current) {
       lastRef.current = totalTokens;
-      setSeries((prev) => [...prev, totalTokens].slice(-40));
+      setSeries((prev) => {
+        const next = [...prev, totalTokens].slice(-60);
+        if (sessionId) seriesBySession.set(sessionId, next);
+        return next;
+      });
     }
-  }, [totalTokens]);
+  }, [totalTokens, sessionId]);
 
   // Laufende Dauer (aktualisiert alle 10 s).
   const startMs = useMemo(() => {
@@ -144,7 +162,16 @@ export const TbMetricsBar: React.FC<TbMetricsBarProps> = ({
         value={fmtDuration(now - startMs)}
         title="Dauer dieser Sitzung"
       />
-      <div className="ml-auto flex items-center gap-2">
+      <div
+        className="ml-auto flex items-center gap-2"
+        title={
+          series.length >= 2
+            ? `Kontext-Token über die Sitzung — min ${fmtTokens(Math.min(...series))}, max ${fmtTokens(
+                Math.max(...series)
+              )}, jetzt ${fmtTokens(series[series.length - 1])} (${series.length} Punkte). Einbrüche = /compact.`
+            : 'Kontext-Token über die Sitzung (sammelt sich mit jeder Anfrage).'
+        }
+      >
         <span className="text-text-muted">Token-Verlauf</span>
         <Sparkline data={series} />
       </div>

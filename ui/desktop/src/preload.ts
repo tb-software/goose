@@ -204,6 +204,8 @@ type ElectronAPI = {
     tags: { id: string; name: string; color: string; note?: string }[];
     chatTags: Record<string, string[]>;
   }) => Promise<{ ok: boolean; error?: string }>;
+  tbOpenLogs: () => Promise<{ ok: boolean; path?: string }>;
+  tbToggleDevtools: () => Promise<{ ok: boolean }>;
   tbSearch: (
     roots: string[],
     query: string
@@ -395,6 +397,8 @@ const electronAPI: ElectronAPI = {
   ) => ipcRenderer.invoke('tb-accept-risk-consent', acknowledgements),
   tbGetTags: () => ipcRenderer.invoke('tb-get-tags'),
   tbSaveTags: (data: unknown) => ipcRenderer.invoke('tb-save-tags', data),
+  tbOpenLogs: () => ipcRenderer.invoke('tb-open-logs'),
+  tbToggleDevtools: () => ipcRenderer.invoke('tb-toggle-devtools'),
   tbSearch: (roots: string[], query: string) => ipcRenderer.invoke('tb-search', roots, query),
   tbWatchFile: (path: string) => ipcRenderer.invoke('tb-watch-file', path),
   tbUnwatchFile: () => ipcRenderer.invoke('tb-unwatch-file'),

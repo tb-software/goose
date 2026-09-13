@@ -3238,6 +3238,24 @@ async function appMain() {
   });
 
   // TB-Software: Datei fuer das Vorschau-Panel lesen (Text=utf8, Binaer=base64).
+  // TB-Software: Debug-/Werkzeug-Menü — Logs-Ordner öffnen + Entwicklertools umschalten.
+  ipcMain.handle('tb-open-logs', async () => {
+    const dir = path.join(app.getPath('userData'), 'logs');
+    try {
+      fsSync.mkdirSync(dir, { recursive: true });
+    } catch {
+      /* egal */
+    }
+    await shell.openPath(dir);
+    return { ok: true, path: dir };
+  });
+  ipcMain.handle('tb-toggle-devtools', (event: IpcMainInvokeEvent) => {
+    const wc = event.sender;
+    if (wc.isDevToolsOpened()) wc.closeDevTools();
+    else wc.openDevTools({ mode: 'detach' });
+    return { ok: true };
+  });
+
   ipcMain.handle('tb-read-file', async (_event, filePath: string) => {
     const MAX = 40 * 1024 * 1024;
     const textExt = new Set([
