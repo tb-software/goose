@@ -182,6 +182,7 @@ export default function Hub({
             disableAnimation={false}
             workingDir={workingDir}
             onWorkingDirChange={handleWorkingDirChange}
+            alwaysShowWorkingDir={true}
             inputRef={inputRef}
             nextChatExtensionDraft={draftForMenu}
             onNextChatExtensionDraftChange={handleNextChatExtensionDraftChange}

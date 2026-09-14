@@ -136,15 +136,13 @@ async function listTree(dir: string, prefix = ''): Promise<string> {
   return out;
 }
 
-// The swap script deletes its staging directory when it finishes, so its log is kept beside
-// that directory and is the only record of why a background script gave up.
-async function diagnostics(stagingDir: string, installRoot: string): Promise<string> {
-  const logText = await fs
-    .readFile(`${stagingDir}-install.log`, 'utf8')
-    .catch(() => '(no install.log)');
+// The swap script deletes its staging directory when it finishes, so its log is written to a
+// stable path OUTSIDE staging and is the only record of why a background script gave up.
+async function diagnostics(logPath: string, installRoot: string): Promise<string> {
+  const logText = await fs.readFile(logPath, 'utf8').catch(() => '(no update log)');
   return [
     '',
-    '--- install.log ---',
+    '--- tb-update.log ---',
     logText,
     '--- install dir ---',
     await listTree(installRoot),
@@ -158,6 +156,7 @@ afterEach(async () => {
 describe('prepareUpdateInstall', () => {
   it('waits for the app to exit, swaps in the new version, and relaunches it', async () => {
     const workspace = await makeTempDir('goose-update-test-');
+    const logPath = path.join(workspace, 'tb-update.log');
     const stagingDir = path.join(workspace, 'staging');
     const payloadSource = path.join(workspace, 'payload');
     const installRoot = path.join(workspace, 'install');
@@ -190,6 +189,7 @@ describe('prepareUpdateInstall', () => {
       relaunchPath,
       executableRelativePath: executableRelativePath(),
       pid: runningApp.pid!,
+      logPath,
     });
 
     launchSwapScript(swap);
@@ -208,15 +208,16 @@ describe('prepareUpdateInstall', () => {
       async () => (await fs.readFile(versionFile, 'utf8').catch(() => '')) === '2.0.0',
       60000
     );
-    expect(swapped, await diagnostics(stagingDir, installRoot)).toBe(true);
+    expect(swapped, await diagnostics(logPath, installRoot)).toBe(true);
     expect(await waitFor(() => exists(markerPath), 60000)).toBe(true);
     expect(await waitFor(async () => !(await exists(stagingDir)), 60000)).toBe(true);
     expect(await fs.readFile(unrelatedFile, 'utf8')).toBe('keep me');
     expect(await exists(`${installedRoot}.goose-previous`)).toBe(false);
   }, 150000);
 
-  it('restores the previous install when the new payload cannot be copied', async () => {
+  it('leaves the existing install intact when the new payload cannot be copied', async () => {
     const workspace = await makeTempDir('goose-update-rollback-');
+    const logPath = path.join(workspace, 'tb-update.log');
     const stagingDir = path.join(workspace, 'staging');
     const payloadSource = path.join(workspace, 'payload');
     const installRoot = path.join(workspace, 'install');
@@ -246,17 +247,19 @@ describe('prepareUpdateInstall', () => {
       relaunchPath,
       executableRelativePath: executableRelativePath(),
       pid: exitedApp.pid!,
+      logPath,
     });
 
-    // Deleting the extracted payload makes the copy step fail, exercising the rollback path.
+    // Deleting the extracted payload makes the copy step fail, exercising the failure path.
     await fs.rm(path.join(stagingDir, 'extracted'), { recursive: true, force: true });
 
     launchSwapScript(swap);
 
-    // The restored app is relaunched at the end of the swap, so the marker proves the script
-    // ran to completion rather than merely that the rollback has not happened yet.
+    // The copy-over swap never touches the install until it can read the payload, so a failed
+    // copy leaves the old version in place. The app is still relaunched at the end of the swap,
+    // so the marker proves the script ran to completion rather than aborting silently.
     const relaunched = await waitFor(() => exists(markerPath), 30000);
-    expect(relaunched, await diagnostics(stagingDir, installRoot)).toBe(true);
+    expect(relaunched, await diagnostics(logPath, installRoot)).toBe(true);
     expect(await exists(`${installedRoot}.goose-previous`)).toBe(false);
     expect(await fs.readFile(versionFile, 'utf8')).toBe('1.0.0');
     expect(await exists(path.join(installedRoot, executableRelativePath()))).toBe(true);
@@ -280,7 +283,66 @@ describe('prepareUpdateInstall', () => {
         relaunchPath: path.join(workspace, 'install', 'Goose'),
         executableRelativePath: executableRelativePath(),
         pid: process.pid,
+        logPath: path.join(workspace, 'tb-update.log'),
       })
     ).rejects.toThrow(/missing its executable/);
+  }, 60000);
+
+  // Fast, no-spawn regression guard for the swap-script contract (Milestone [11]):
+  // copy-over-in-place, kill lingering processes by name, and log to a stable path that
+  // survives the staging cleanup. These are the exact properties whose absence made earlier
+  // GUI updates silently leave the old version in place with no trace.
+  it('generates a copy-over swap script that kills by name and logs to a stable path', async () => {
+    const workspace = await makeTempDir('goose-update-script-');
+    const stagingDir = path.join(workspace, 'staging');
+    const payloadSource = path.join(workspace, 'payload');
+    const installRoot = path.join(workspace, 'install');
+    const markerPath = path.join(workspace, 'relaunched.txt');
+    const logPath = path.join(workspace, 'tb-update.log');
+    await fs.mkdir(stagingDir, { recursive: true });
+    await fs.mkdir(payloadSource, { recursive: true });
+    await fs.mkdir(installRoot, { recursive: true });
+
+    const newPayload = await makePayload(payloadSource, '2.0.0', markerPath);
+    const archivePath = path.join(stagingDir, 'Goose-2.0.0.zip');
+    await zip(newPayload, archivePath);
+
+    const installedRoot = await makePayload(installRoot, '1.0.0', markerPath);
+    const relaunchPath =
+      process.platform === 'darwin'
+        ? installedRoot
+        : path.join(installedRoot, executableRelativePath());
+
+    const swap = await prepareUpdateInstall({
+      archivePath,
+      targetPath: installedRoot,
+      relaunchPath,
+      executableRelativePath: executableRelativePath(),
+      pid: 424242,
+      logPath,
+    });
+
+    const scriptPath = swap.args[swap.args.length - 1];
+    const script = await fs.readFile(scriptPath, 'utf8');
+
+    // The log path must be embedded verbatim so the "Update-Protokoll öffnen" button finds it.
+    expect(script).toContain(logPath);
+    // Copy-over, never move the running install aside (a single locked file broke the old move).
+    expect(script).not.toContain('goose-previous');
+    // \b keeps this from matching the "move-Item" inside the cleanup's Remove-Item.
+    expect(script).not.toMatch(/\bMove-Item/i);
+
+    if (process.platform === 'win32') {
+      expect(script).toMatch(/Copy-Item/);
+      // Kill our own app/backend by specific name...
+      expect(script).toContain("Get-Process -Name 'TB-Goose','goose'");
+      // ...but crashpad_handler only when its path is under our install dir (never foreign ones).
+      expect(script).toMatch(/Get-Process -Name 'crashpad_handler'[^\n]*StartsWith\(\$prefix\)/);
+      expect(script).toMatch(/Start-Process -FilePath/);
+    } else if (process.platform === 'darwin') {
+      expect(script).toMatch(/ditto /);
+    } else {
+      expect(script).toMatch(/cp -a /);
+    }
   }, 60000);
 });

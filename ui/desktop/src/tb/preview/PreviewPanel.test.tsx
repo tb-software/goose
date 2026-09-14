@@ -26,6 +26,10 @@ describe('PreviewPanel', () => {
   beforeEach(() => {
     (window as unknown as { electron: unknown }).electron = {
       tbReadFile: vi.fn(),
+      tbWatchFile: vi.fn(),
+      tbUnwatchFile: vi.fn(),
+      // Returns the unsubscribe function the effect calls on cleanup.
+      onTbFileChanged: vi.fn(() => vi.fn()),
       showItemInFolder: vi.fn(),
     };
   });

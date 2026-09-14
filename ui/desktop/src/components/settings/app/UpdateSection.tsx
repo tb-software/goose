@@ -60,6 +60,10 @@ const i18n = defineMessages({
     defaultMessage:
       'Click to install & restart now — or it installs automatically the next time you close the app.',
   },
+  openUpdateLog: {
+    id: 'updateSection.openUpdateLog',
+    defaultMessage: 'Update-Protokoll öffnen',
+  },
   openDownloadFolder: {
     id: 'updateSection.openDownloadFolder',
     defaultMessage: 'Open download folder',
@@ -430,6 +434,17 @@ export default function UpdateSection() {
               {intl.formatMessage(i18n.openDownloadFolder)}
             </Button>
           )}
+
+          {/* TB-Software (Milestone [11]): Update-Protokoll immer öffenbar — Sichtbarkeit, was beim
+              letzten Update passiert ist (Grundlage zum Diagnostizieren von Fehlversuchen). */}
+          <Button
+            onClick={() => window.electron.tbOpenUpdateLog?.()}
+            variant="ghost"
+            size="sm"
+            title="Zeigt Schritt für Schritt, was beim letzten Update passiert ist"
+          >
+            {intl.formatMessage(i18n.openUpdateLog)}
+          </Button>
         </div>
 
         {getStatusMessage() && (

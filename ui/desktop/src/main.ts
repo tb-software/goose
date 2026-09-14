@@ -3255,6 +3255,20 @@ async function appMain() {
     else wc.openDevTools({ mode: 'detach' });
     return { ok: true };
   });
+  // TB-Software (Milestone [11]): Update-Protokoll öffnen (findbares Log des In-App-Updates).
+  ipcMain.handle('tb-open-update-log', async () => {
+    const p = path.join(app.getPath('userData'), 'logs', 'tb-update.log');
+    try {
+      fsSync.mkdirSync(path.dirname(p), { recursive: true });
+      if (!fsSync.existsSync(p)) {
+        fsSync.writeFileSync(p, '(Noch kein Update-Protokoll — es entsteht beim ersten Update-Versuch.)\n');
+      }
+    } catch {
+      /* egal */
+    }
+    await shell.openPath(p);
+    return { ok: true, path: p };
+  });
 
   ipcMain.handle('tb-read-file', async (_event, filePath: string) => {
     const MAX = 40 * 1024 * 1024;

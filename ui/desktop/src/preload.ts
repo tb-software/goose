@@ -206,6 +206,7 @@ type ElectronAPI = {
   }) => Promise<{ ok: boolean; error?: string }>;
   tbOpenLogs: () => Promise<{ ok: boolean; path?: string }>;
   tbToggleDevtools: () => Promise<{ ok: boolean }>;
+  tbOpenUpdateLog: () => Promise<{ ok: boolean; path?: string }>;
   tbSearch: (
     roots: string[],
     query: string
@@ -399,6 +400,7 @@ const electronAPI: ElectronAPI = {
   tbSaveTags: (data: unknown) => ipcRenderer.invoke('tb-save-tags', data),
   tbOpenLogs: () => ipcRenderer.invoke('tb-open-logs'),
   tbToggleDevtools: () => ipcRenderer.invoke('tb-toggle-devtools'),
+  tbOpenUpdateLog: () => ipcRenderer.invoke('tb-open-update-log'),
   tbSearch: (roots: string[], query: string) => ipcRenderer.invoke('tb-search', roots, query),
   tbWatchFile: (path: string) => ipcRenderer.invoke('tb-watch-file', path),
   tbUnwatchFile: () => ipcRenderer.invoke('tb-unwatch-file'),

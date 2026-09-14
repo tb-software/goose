@@ -208,6 +208,10 @@ interface ChatInputProps {
   latestInference?: Message['metadata']['inference'] | null;
   nextChatExtensionDraft?: NextChatExtensionDraft;
   onNextChatExtensionDraftChange?: (draft: NextChatExtensionDraft) => void;
+  // TB-Software: Auf dem Start-Bildschirm (Hub) das Arbeitsverzeichnis IMMER zeigen, damit der
+  // Pfad schon VOR dem ersten Prompt einstellbar ist (die schmale Hub-Karte < 700px würde ihn
+  // sonst per Breiten-Regel ausblenden).
+  alwaysShowWorkingDir?: boolean;
 }
 
 export default function ChatInput({
@@ -245,6 +249,7 @@ export default function ChatInput({
   latestInference,
   nextChatExtensionDraft,
   onNextChatExtensionDraftChange,
+  alwaysShowWorkingDir = false,
 }: ChatInputProps) {
   const [_value, setValue] = useState(initialValue);
   const [displayValue, setDisplayValue] = useState(initialValue); // For immediate visual feedback
@@ -1725,8 +1730,9 @@ export default function ChatInput({
           </div>
         </Tooltip>
 
-        {/* Left: working directory (middle-truncated; hidden when the bar is too narrow) */}
-        {!isDirHidden && (
+        {/* Left: working directory (middle-truncated; hidden when the bar is too narrow, außer der
+            Hub erzwingt die Anzeige, damit der Pfad vor dem ersten Prompt einstellbar ist) */}
+        {(alwaysShowWorkingDir || !isDirHidden) && (
           <DirSwitcher
             className=""
             sessionId={sessionId ?? undefined}
@@ -1766,7 +1772,7 @@ export default function ChatInput({
             />
 
             {/* TB-Software: Toolshim-Umschalter (Text-Tool-Parsing für Modelle ohne native tool_calls) */}
-            <TbToolshimToggle />
+            <TbToolshimToggle model={effectiveModel} />
 
             {/* TB-Software: Browser im rechten Vorschau-Panel öffnen */}
             <TbBrowserToggle />

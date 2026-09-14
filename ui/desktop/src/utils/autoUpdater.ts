@@ -369,9 +369,16 @@ export function registerUpdateIpcHandlers() {
 
         // Erst antworten, dann beenden: 400 ms Verzögerung, damit das IPC-Ergebnis den Renderer
         // erreicht, bevor der Prozess endet (sonst „hängt" der await im UI).
+        // WICHTIG (Milestone [11], H1): app.quit() kann durch Fenster/before-quit blockiert werden
+        // -> dann wartet das Swap-Skript ewig und tauscht nie. Nach kurzer Frist HART beenden
+        // (app.exit(0)), damit der Prozess wirklich endet und der Swap greifen kann.
         swapInstallLaunched = true;
-        log.info('Swap script launched — quitting app in 400ms so the swap can complete...');
+        log.info('Swap script launched — quitting app so the swap can complete...');
         setTimeout(() => app.quit(), 400);
+        setTimeout(() => {
+          log.warn('[TB] app still alive 3s after quit — forcing app.exit(0) for the swap');
+          app.exit(0);
+        }, 3000);
         return { success: true, error: null };
       } else {
         // Use electron-updater's built-in install
@@ -454,7 +461,8 @@ export function registerUpdateIpcHandlers() {
       } catch (err) {
         log.error('[TB] Quit-Install Ausnahme:', err);
       } finally {
-        app.quit();
+        // Prozess sicher beenden, damit das (kopierende) Swap-Skript die Dateien tauschen kann.
+        app.exit(0);
       }
     })();
   });

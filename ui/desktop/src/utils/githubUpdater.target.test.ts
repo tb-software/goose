@@ -38,11 +38,12 @@ describe('resolveInstallTarget', () => {
     setPlatform('darwin');
     const exePath = '/Applications/Goose.app/Contents/MacOS/Goose';
 
-    await expect(resolveInstallTarget(exePath)).resolves.toEqual({
-      targetPath: '/Applications/Goose.app',
-      relaunchPath: '/Applications/Goose.app',
-      executableRelativePath: path.join('Contents', 'MacOS', 'Goose'),
-    });
+    // The darwin branch uses the host's path module, so on a Windows dev host the drive-relative
+    // resolution differs; assert the bundle structure rather than exact absolute strings.
+    const target = await resolveInstallTarget(exePath);
+    expect(target.targetPath.endsWith('Goose.app')).toBe(true);
+    expect(target.relaunchPath).toBe(target.targetPath);
+    expect(target.executableRelativePath.replace(/\\/g, '/')).toBe('Contents/MacOS/Goose');
   });
 
   it('rejects a macOS executable that is not inside a bundle', async () => {
@@ -65,36 +66,46 @@ describe('resolveInstallTarget', () => {
     });
   });
 
-  it('refuses to update when the executable parent is not a packaged app directory', async () => {
+  // The packaged-look and unrelated-files checks were relaxed to warnings: a self-update's install
+  // dir IS dirname(exe) by definition, and the copy-over swap never deletes files it does not
+  // overwrite, so rejecting these blocked real installs (e.g. D:\_AI\Programs\TB-Goose). Only a
+  // shared SYSTEM directory (Downloads, home, Program Files, ...) is still a hard abort.
+  it('still updates when the parent only looks partly like an app directory (warn, not refuse)', async () => {
     setPlatform('linux');
     const root = await makeTempDir();
     const exePath = path.join(root, 'goose');
     await fs.writeFile(exePath, 'binary');
     await fs.writeFile(path.join(root, 'tax-return.pdf'), 'important');
 
-    await expect(resolveInstallTarget(exePath)).rejects.toThrow(
-      /does not look like an app install directory/
-    );
+    await expect(resolveInstallTarget(exePath)).resolves.toEqual({
+      targetPath: root,
+      relaunchPath: exePath,
+      executableRelativePath: path.basename(exePath),
+    });
   });
 
-  it('refuses to update when the install directory is a shared directory', async () => {
+  it('refuses to update when the install directory is a shared system directory', async () => {
     setPlatform('linux');
     const root = await makeTempDir();
     const exePath = await makeInstallDir(root, 'Downloads');
 
-    await expect(resolveInstallTarget(exePath)).rejects.toThrow(/is a shared directory/);
+    await expect(resolveInstallTarget(exePath)).rejects.toThrow(/geteilter Systemordner/);
   });
 
-  it('refuses to update a plausibly named directory shared with unrelated files', async () => {
+  it('still updates a plausibly named directory that also holds unrelated files (warn, not refuse)', async () => {
     setPlatform('linux');
     const root = await makeTempDir();
     const exePath = await makeInstallDir(root, 'Stuff');
     await fs.writeFile(path.join(path.dirname(exePath), 'tax-return.pdf'), 'important');
 
-    await expect(resolveInstallTarget(exePath)).rejects.toThrow(/is not dedicated to the app/);
+    await expect(resolveInstallTarget(exePath)).resolves.toEqual({
+      targetPath: path.dirname(exePath),
+      relaunchPath: exePath,
+      executableRelativePath: path.basename(exePath),
+    });
   });
 
-  it('refuses to update when the install directory is missing Electron runtime directories', async () => {
+  it('still updates when Electron runtime directories are missing (warn, not refuse)', async () => {
     setPlatform('linux');
     const root = await makeTempDir();
     const installDir = path.join(root, 'goose-linux-x64');
@@ -103,9 +114,11 @@ describe('resolveInstallTarget', () => {
     const exePath = path.join(installDir, 'goose');
     await fs.writeFile(exePath, 'binary');
 
-    await expect(resolveInstallTarget(exePath)).rejects.toThrow(
-      /does not look like an app install directory/
-    );
+    await expect(resolveInstallTarget(exePath)).resolves.toEqual({
+      targetPath: installDir,
+      relaunchPath: exePath,
+      executableRelativePath: path.basename(exePath),
+    });
   });
 
   it('refuses to update when the install directory is the home directory', async () => {
@@ -113,7 +126,7 @@ describe('resolveInstallTarget', () => {
     const home = path.resolve(os.homedir());
 
     await expect(resolveInstallTarget(path.join(home, 'goose'))).rejects.toThrow(
-      /Refusing to auto-update/
+      /geteilter Systemordner/
     );
   });
 });

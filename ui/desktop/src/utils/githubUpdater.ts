@@ -30,7 +30,8 @@ interface UpdateCheckResult {
 interface InstallTarget {
   targetPath: string;
   relaunchPath: string;
-  // Used to confirm the extracted payload really is an app before the backup is deleted.
+  // Used to confirm the extracted payload really is an app, and to verify the new executable
+  // exists after the copy-over swap.
   executableRelativePath: string;
 }
 
@@ -243,12 +244,13 @@ export async function resolveInstallTarget(exePath: string): Promise<InstallTarg
   const installDir = path.dirname(resolvedExePath);
 
   // TB-Software: Beim Self-Update IST dirname(exe) per Definition der App-Ordner (die laufende
-  // App liegt dort). Der einzig gefährliche Fall ist ein GETEILTER Systemordner (z. B. Desktop,
-  // Downloads, Programme-Wurzel) — den würde der Tausch als Ganzes beiseiteschieben. Das bleibt
-  // ein hartes Abbruch-Kriterium. Die übrigen Prüfungen (sieht es „verpackt" aus / nur App-Dateien)
-  // waren zu streng und lehnten reale, gültige Installationen ab (z. B. D:\_AI\Programs\TB-Goose).
-  // Sie werden zu WARNUNGEN — der Tausch sichert den alten Ordner ohnehin als .goose-previous
-  // (löscht nichts) und prüft nach dem Kopieren, ob die neue Exe vorhanden ist (sonst Rollback).
+  // App liegt dort). Der Tausch kopiert das neue Paket IN PLACE über den Ordner (copy-over) —
+  // er verschiebt/löscht den Ordner NICHT. Der einzig gefährliche Fall ist ein GETEILTER
+  // Systemordner (z. B. Desktop, Downloads, Programme-Wurzel), in den das Paket fremde Dateien
+  // streuen würde. Das bleibt ein hartes Abbruch-Kriterium. Die übrigen Prüfungen (sieht es
+  // „verpackt" aus / nur App-Dateien) waren zu streng und lehnten reale, gültige Installationen
+  // ab (z. B. D:\_AI\Programs\TB-Goose). Sie werden zu WARNUNGEN — copy-over lässt Fremd-Dateien
+  // unangetastet und prüft nach dem Kopieren, ob die neue Exe vorhanden ist (sonst bleibt Alt).
   if (isSharedDirectory(installDir)) {
     throw new Error(
       `Auto-Update abgebrochen: ${installDir} ist ein geteilter Systemordner. Bitte TB-Goose in einen eigenen Ordner verschieben (z. B. C:\\_AI\\Applications\\TB-Goose) und erneut versuchen.`
@@ -264,7 +266,7 @@ export async function resolveInstallTarget(exePath: string): Promise<InstallTarg
   const unexpected = await findUnexpectedInstallEntries(installDir, path.basename(resolvedExePath));
   if (unexpected.length > 0) {
     log.warn(
-      `resolveInstallTarget: Fremd-Einträge im App-Ordner (${unexpected.slice(0, 5).join(', ')}) — werden mit ins Backup (.goose-previous) verschoben, nicht gelöscht.`
+      `resolveInstallTarget: Fremd-Einträge im App-Ordner (${unexpected.slice(0, 5).join(', ')}) — copy-over lässt sie unangetastet (weder gelöscht noch überschrieben).`
     );
   }
 
@@ -284,90 +286,77 @@ async function writeSwapScript(options: {
   pid: number;
   // false = nur tauschen, nicht neu starten (Installation beim Beenden -> App bleibt zu).
   relaunch: boolean;
+  // STABILER, findbarer Pfad des Update-Protokolls (überlebt Staging-Cleanup; im UI öffenbar).
+  logPath: string;
 }): Promise<SwapCommand> {
-  const { stagingDir, payloadPath, targetPath, relaunchPath, executableRelativePath, pid, relaunch } =
+  const { stagingDir, payloadPath, targetPath, relaunchPath, executableRelativePath, pid, relaunch, logPath } =
     options;
-  // The script deletes its staging directory once it finishes, so the log lives beside that
-  // directory to survive cleanup and stay available when diagnosing a failed update.
-  const logPath = `${stagingDir}-install.log`;
-  // The previous install is moved aside rather than deleted so a failed copy can be rolled back.
-  // It stays beside the target so the move is a same-filesystem rename instead of a full copy.
-  const backupPath = `${targetPath}.goose-previous`;
 
   if (process.platform === 'win32') {
     const scriptPath = path.join(stagingDir, 'swap-and-relaunch.ps1');
-    // Copy-Item nests the source inside an existing destination directory, so the payload
-    // contents are copied into a freshly created target instead of the payload directory itself.
-    // Get-ChildItem enumerates them via -LiteralPath so paths containing glob metacharacters
-    // are not expanded, and -Force keeps hidden entries.
     const installedExe = powershellQuote(path.join(targetPath, executableRelativePath));
-    const relaunchLine = `Start-Process -FilePath ${powershellQuote(relaunchPath)}`;
+    // TB-Software (Milestone [11]): COPY-OVER-IN-PLACE nach dem bewährten LenaX-DB-Muster —
+    // NICHT den laufenden Ordner verschieben (Move scheitert an einer einzigen gesperrten Datei).
+    // Erst App+Backend per NAME und Pfad beenden, dann das Paket über den Ordner kopieren.
     const script = [
       `$ErrorActionPreference = 'Continue'`,
       `$target = ${powershellQuote(targetPath)}`,
-      `$backup = ${powershellQuote(backupPath)}`,
       `$payload = ${powershellQuote(payloadPath)}`,
       `$installedExe = ${installedExe}`,
-      // Start-Transcript silently produces no file when it is unavailable, so the log is written
-      // directly to keep a failing detached script diagnosable.
-      `function Write-Log($message) { try { Add-Content -LiteralPath ${powershellQuote(logPath)} -Value $message } catch {} }`,
-      `Write-Log "swap starting for pid ${pid}"`,
-      // 1) Auf das Beenden der Haupt-App warten.
-      `$attempt = 0`,
-      `while ($attempt -lt 120) {`,
-      `  $proc = Get-Process -Id ${pid} -ErrorAction SilentlyContinue`,
-      `  if (-not $proc -or $proc.HasExited) { break }`,
-      `  Start-Sleep -Milliseconds 500`,
-      `  $attempt = $attempt + 1`,
-      `}`,
-      // 2) KRITISCH: alle Rest-Prozesse aus dem Zielordner beenden (gebündeltes Backend goose.exe
-      //    unter resources\bin\, crashpad/GPU-Helfer, hängende App-Prozesse). Sonst sind Dateien im
-      //    Ordner gesperrt und Move-Item scheitert -> kein Swap, kein Neustart (genau der Bug).
-      `$targetLower = $target.ToLower().TrimEnd('\\') + '\\'`,
-      `for ($k = 0; $k -lt 30; $k++) {`,
-      `  $locking = Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.ToLower().StartsWith($targetLower) }`,
-      `  if (-not $locking) { break }`,
-      `  Write-Log ('stopping locking procs: ' + (($locking | ForEach-Object { $_.ProcessName } | Select-Object -Unique) -join ','))`,
-      `  $locking | ForEach-Object { try { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue } catch {} }`,
+      `$log = ${powershellQuote(logPath)}`,
+      `function L($m){ try { ("{0}  {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $m) | Out-File -LiteralPath $log -Append -Encoding UTF8 } catch {} }`,
+      `L "===== swap start · pid=${pid} · relaunch=${relaunch} · target=$target ====="`,
+      // 1) Auf das Beenden der Haupt-App warten (max ~60 s).
+      `L "warte auf App-Ende (pid ${pid})..."`,
+      `for ($i=0; $i -lt 120; $i++){ if (-not (Get-Process -Id ${pid} -ErrorAction SilentlyContinue)) { break }; Start-Sleep -Milliseconds 500 }`,
+      `if (Get-Process -Id ${pid} -ErrorAction SilentlyContinue) { L "WARN: App-pid nach 60s noch aktiv — fahre trotzdem fort" } else { L "App beendet" }`,
+      // 2) NUR EIGENE Rest-Prozesse hart beenden. Wichtig: 'crashpad_handler' ist ein generischer
+      // Name (jede Electron/Chrome-App hat einen) — per Name zu killen würde FREMDE Prozesse treffen
+      // und die Schleife endlos laufen lassen (deren Crashpad startet/bleibt), sodass das Kopieren nie
+      // dran kam. Darum: App/Backend per spezifischem Namen, Crashpad NUR wenn seine Exe unter unserem
+      // Installationsordner liegt. Das ist zudem schnell (kein Voll-Enum aller Prozess-Pfade).
+      `$prefix = $target.ToLower().TrimEnd('\\') + '\\'`,
+      `for ($k=0; $k -lt 30; $k++){`,
+      `  $byApp = Get-Process -Name 'TB-Goose','goose' -ErrorAction SilentlyContinue`,
+      `  $byCrashpad = Get-Process -Name 'crashpad_handler' -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.ToLower().StartsWith($prefix) }`,
+      `  $procs = @($byApp) + @($byCrashpad) | Sort-Object Id -Unique`,
+      `  if (-not $procs) { break }`,
+      `  L ("beende: " + (($procs | ForEach-Object { $_.ProcessName } | Select-Object -Unique) -join ','))`,
+      `  $procs | ForEach-Object { try { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue } catch {} }`,
       `  Start-Sleep -Milliseconds 400`,
       `}`,
-      // 3) Alten Ordner beiseite schieben — mit Wiederholung, falls Handles langsam freigeben.
-      `Remove-Item -LiteralPath $backup -Recurse -Force -ErrorAction SilentlyContinue`,
-      `$moved = $false`,
-      `for ($m = 0; $m -lt 20; $m++) {`,
-      `  Move-Item -LiteralPath $target -Destination $backup -Force -ErrorAction SilentlyContinue`,
-      `  if (-not (Test-Path -LiteralPath $target)) { $moved = $true; break }`,
-      `  Start-Sleep -Milliseconds 500`,
+      `Start-Sleep -Milliseconds 700`,
+      // 3) Paket ÜBER den Ordner kopieren (in place), mit Wiederholung falls Handles langsam frei werden.
+      `L "kopiere Paket über Installation (in place)..."`,
+      `$ok = $false`,
+      `for ($c=0; $c -lt 20; $c++){`,
+      `  try {`,
+      `    $entries = (Get-ChildItem -LiteralPath $payload -Force).FullName`,
+      `    Copy-Item -LiteralPath $entries -Destination $target -Recurse -Force -ErrorAction Stop`,
+      `    if (Test-Path -LiteralPath $installedExe) { $ok = $true; break }`,
+      `    L "Kopie ok, aber Exe fehlt noch — Versuch $c"`,
+      `  } catch { L ("Kopierfehler (Versuch $c): " + $_.Exception.Message) }`,
+      `  Start-Sleep -Milliseconds 800`,
       `}`,
-      `if (-not $moved) {`,
-      `  Write-Log 'could not move install aside (locked) — restoring + relaunch old'`,
-      `  if (Test-Path -LiteralPath $backup) { Move-Item -LiteralPath $backup -Destination $target -Force -ErrorAction SilentlyContinue }`,
-      // Auch bei Fehlschlag NIE ohne App zurücklassen (Nutzer war ja mitten im Update).
-      ...(relaunch ? [`  ${relaunchLine}`] : []),
-      `  exit 1`,
-      `}`,
-      `Write-Log 'install moved aside; copying payload'`,
-      `try {`,
-      `  New-Item -ItemType Directory -Path $target -Force -ErrorAction Stop | Out-Null`,
-      `  $payloadEntries = (Get-ChildItem -LiteralPath $payload -Force).FullName`,
-      `  Copy-Item -LiteralPath $payloadEntries -Destination $target -Recurse -Force -ErrorAction Stop`,
-      // A valid archive can still be packaged without the executable, so the backup is only
-      // discarded once the copied payload is confirmed to be a runnable install.
-      `  if (-not (Test-Path -LiteralPath $installedExe)) { throw 'Updated install is missing its executable' }`,
-      `  Remove-Item -LiteralPath $backup -Recurse -Force -ErrorAction SilentlyContinue`,
-      `  Write-Log 'swap ok'`,
-      `} catch {`,
-      `  Write-Log ('swap failed: ' + $_.Exception.Message + ' — rollback')`,
-      `  Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction SilentlyContinue`,
-      `  Move-Item -LiteralPath $backup -Destination $target -Force -ErrorAction SilentlyContinue`,
-      `}`,
-      ...(relaunch ? [relaunchLine] : [`Write-Log 'swap done (no relaunch)'`]),
-      `try { Stop-Transcript | Out-Null } catch {}`,
+      `if ($ok) { L "SWAP OK — neue Version liegt im Ordner" } else { L "SWAP FEHLGESCHLAGEN nach Wiederholungen — alte Version bleibt (Datei gesperrt?)" }`,
+      // 4) Neustart (immer, wenn gewünscht — auch nach Teil-Fehlschlag, damit nie ohne App).
+      ...(relaunch
+        ? [`L "starte neu: $installedExe"`, `Start-Process -FilePath $installedExe`]
+        : [`L "kein Neustart (Installation beim Beenden)"`]),
+      // 5) Staging aufräumen — das LOG bleibt (stabiler Pfad, nicht im Staging).
       `Remove-Item -LiteralPath ${powershellQuote(stagingDir)} -Recurse -Force -ErrorAction SilentlyContinue`,
+      `L "===== swap ende ====="`,
       '',
     ].join('\r\n');
 
-    await fs.writeFile(scriptPath, script);
+    // TB-Software (Milestone [11]): Das Skript enthält deutsche Log-Texte mit Umlauten (ü/ö/ä)
+    // und Gedankenstrichen (—). Windows PowerShell 5.1 liest eine BOM-LOSE Datei als Windows-1252,
+    // NICHT als UTF-8 — dadurch werden Mehrbyte-UTF-8-Sequenzen fehlinterpretiert (z. B. wird aus
+    // „—" ein Smart-Quote, das der Parser als String-Begrenzer wertet) und das Skript bricht mit
+    // einem ParserError ab, BEVOR auch nur die erste Log-Zeile geschrieben wird. Das war die
+    // eigentliche Ursache für „Update tut nichts, keine Version getauscht, kein Protokoll".
+    // Mit UTF-8-BOM liest PowerShell die Datei korrekt.
+    await fs.writeFile(scriptPath, `﻿${script}`, { encoding: 'utf8' });
     return {
       command: 'powershell.exe',
       args: [
@@ -383,49 +372,32 @@ async function writeSwapScript(options: {
     };
   }
 
+  // POSIX: ebenfalls copy-over-in-place (kein Move der laufenden Wurzel).
   const scriptPath = path.join(stagingDir, 'swap-and-relaunch.sh');
   const quotedPayload = shellQuote(payloadPath);
   const quotedTarget = shellQuote(targetPath);
-  const quotedBackup = shellQuote(backupPath);
   const quotedRelaunch = shellQuote(relaunchPath);
   const quotedInstalledExe = shellQuote(path.join(targetPath, executableRelativePath));
   const copyCommand =
     process.platform === 'darwin'
       ? `ditto ${quotedPayload} ${quotedTarget}`
-      : `cp -a ${quotedPayload} ${quotedTarget}`;
+      : `cp -a ${quotedPayload}/. ${quotedTarget}/`;
   const relaunchCmds = !relaunch
-    ? []
+    ? ['echo "no relaunch"']
     : process.platform === 'darwin'
       ? [`xattr -dr com.apple.quarantine ${quotedTarget} || true`, `open ${quotedRelaunch}`]
       : [`${quotedRelaunch} >/dev/null 2>&1 &`];
 
   const script = [
     '#!/bin/sh',
-    'set -e',
     `exec >> ${shellQuote(logPath)} 2>&1`,
+    `echo "===== swap start pid=${pid} ====="`,
     'attempt=0',
-    'while [ "$attempt" -lt 120 ]; do',
-    `  kill -0 ${pid} 2>/dev/null || break`,
-    '  sleep 0.5',
-    '  attempt=$((attempt + 1))',
-    'done',
-    // Touching a live bundle corrupts the running app, so a stalled shutdown aborts the swap.
-    `if kill -0 ${pid} 2>/dev/null; then`,
-    '  echo "App is still running; aborting update"',
-    '  exit 1',
-    'fi',
-    `rm -rf ${quotedBackup}`,
-    `mv ${quotedTarget} ${quotedBackup}`,
-    // A valid archive can still be packaged without the executable, so the backup is only
-    // discarded once the copied payload is confirmed to be a runnable install.
-    `if ${copyCommand} && [ -x ${quotedInstalledExe} ]; then`,
-    `  rm -rf ${quotedBackup}`,
-    'else',
-    `  rm -rf ${quotedTarget}`,
-    `  mv ${quotedBackup} ${quotedTarget}`,
-    'fi',
+    `while [ "$attempt" -lt 120 ]; do kill -0 ${pid} 2>/dev/null || break; sleep 0.5; attempt=$((attempt + 1)); done`,
+    `${copyCommand} && [ -x ${quotedInstalledExe} ] && echo "SWAP OK" || echo "SWAP FAILED"`,
     ...relaunchCmds,
     `rm -rf ${shellQuote(stagingDir)}`,
+    'echo "===== swap end ====="',
     '',
   ].join('\n');
 
@@ -459,8 +431,8 @@ export function launchSwapScript(swap: SwapCommand): void {
 }
 
 // A ZIP can be valid yet packaged without the expected application, which would let the swap
-// replace a working install with an unrunnable one. Checking before the backup is deleted keeps
-// the failure recoverable.
+// copy an unrunnable payload over a working install. Checking before the swap script even runs
+// keeps the failure recoverable — the existing install is never touched.
 async function assertPayloadIsRunnable(
   payloadPath: string,
   executableRelativePath: string
@@ -484,6 +456,7 @@ export async function prepareUpdateInstall(options: {
   executableRelativePath: string;
   pid: number;
   relaunch?: boolean;
+  logPath: string;
 }): Promise<SwapCommand> {
   const stagingDir = path.dirname(options.archivePath);
   const extractDir = path.join(stagingDir, 'extracted');
@@ -505,7 +478,22 @@ export async function prepareUpdateInstall(options: {
     executableRelativePath: options.executableRelativePath,
     pid: options.pid,
     relaunch: options.relaunch !== false,
+    logPath: options.logPath,
   });
+}
+
+// TB-Software: stabiler, findbarer Pfad des Update-Protokolls (im UI öffenbar, überlebt Swap).
+export function tbUpdateLogPath(): string {
+  return path.join(app.getPath('userData'), 'logs', 'tb-update.log');
+}
+function tbAppendUpdateLog(line: string): void {
+  try {
+    const p = tbUpdateLogPath();
+    require('node:fs').mkdirSync(path.dirname(p), { recursive: true });
+    require('node:fs').appendFileSync(p, `${new Date().toISOString().replace('T', ' ').slice(0, 19)}  ${line}\n`);
+  } catch {
+    /* Log-Fehler nie fatal */
+  }
 }
 
 export class GitHubUpdater {
@@ -767,9 +755,13 @@ export class GitHubUpdater {
     downloadPath: string,
     relaunch = true
   ): Promise<{ success: boolean; error?: string }> {
+    const logPath = tbUpdateLogPath();
     try {
       log.info('=== GitHubUpdater: STARTING AUTOMATIC INSTALL ===');
-      log.info(`GitHubUpdater: Download path: ${downloadPath} (relaunch=${relaunch})`);
+      tbAppendUpdateLog(
+        `--- install requested (relaunch=${relaunch}, mainPid=${process.pid}, appVer=${app.getVersion()}) ---`
+      );
+      tbAppendUpdateLog(`download: ${downloadPath}`);
 
       await fs.access(downloadPath);
 
@@ -777,6 +769,7 @@ export class GitHubUpdater {
         app.getPath('exe')
       );
       log.info(`GitHubUpdater: Install target: ${targetPath}`);
+      tbAppendUpdateLog(`install target: ${targetPath} (exe: ${executableRelativePath})`);
 
       const swap = await prepareUpdateInstall({
         archivePath: downloadPath,
@@ -785,14 +778,17 @@ export class GitHubUpdater {
         executableRelativePath,
         pid: process.pid,
         relaunch,
+        logPath,
       });
 
+      tbAppendUpdateLog(`swap script prepared, launching (${swap.command}); app will exit now.`);
       launchSwapScript(swap);
 
       log.info('=== GitHubUpdater: SWAP SCRIPT LAUNCHED, app will quit ===');
       return { success: true };
     } catch (error) {
       log.error('GitHubUpdater: Error installing update:', error);
+      tbAppendUpdateLog(`ERROR installing update: ${errorMessage(error, 'Unknown error')}`);
       return {
         success: false,
         error: errorMessage(error, 'Unknown error'),
