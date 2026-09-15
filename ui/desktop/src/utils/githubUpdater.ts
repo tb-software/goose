@@ -4,7 +4,7 @@ import { spawn } from 'child_process';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
-import log from './logger';
+import log, { tbLogsDir } from './logger';
 import { safeJsonParse, errorMessage } from './conversionUtils';
 
 interface GitHubRelease {
@@ -483,8 +483,11 @@ export async function prepareUpdateInstall(options: {
 }
 
 // TB-Software: stabiler, findbarer Pfad des Update-Protokolls (im UI öffenbar, überlebt Swap).
+// Liegt im selben logs-Ordner wie main.log — bevorzugt NEBEN dem Programm (siehe tbLogsDir).
+// Der Copy-over-Swap fasst den logs-Ordner nicht an (kein logs/ im Payload), also bleibt das
+// Protokoll über den Tausch hinweg erhalten.
 export function tbUpdateLogPath(): string {
-  return path.join(app.getPath('userData'), 'logs', 'tb-update.log');
+  return path.join(tbLogsDir(), 'tb-update.log');
 }
 function tbAppendUpdateLog(line: string): void {
   try {

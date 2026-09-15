@@ -43,7 +43,7 @@ import { getLoginShellPath } from './loginShellPath';
 import { GooseServeLeaseRegistry, type GooseServeLease } from './gooseServeLeaseRegistry';
 import { acpWebSocketUrlFromHttpBase, normalizeAcpHttpBaseUrl } from './acp/url';
 import { expandTilde, sanitizeGoosePathRoot } from './utils/pathUtils';
-import log from './utils/logger';
+import log, { tbLogsDir } from './utils/logger';
 import { ensureWinShims } from './utils/winShims';
 import { addRecentDir, loadRecentDirs } from './utils/recentDirs';
 import { formatAppName, errorMessage, formatErrorForLogging } from './utils/conversionUtils';
@@ -276,7 +276,9 @@ function translateMenuLabels(items: MenuItem[]): void {
 
 // Settings management
 const SETTINGS_FILE = path.join(app.getPath('userData'), 'settings.json');
-const STARTUP_LOGS_DIR = path.join(app.getPath('userData'), 'logs', 'startup');
+// TB-Software: Backend-Start-Diagnose in denselben findbaren logs-Ordner (bevorzugt neben dem
+// Programm) — dort landet z. B. ein Backend-Start-Fehler (goose.exe), den der Anwender sucht.
+const STARTUP_LOGS_DIR = path.join(tbLogsDir(), 'startup');
 const validLanguageSettings = new Set<Settings['language']>([
   'system',
   'en',
@@ -3240,7 +3242,7 @@ async function appMain() {
   // TB-Software: Datei fuer das Vorschau-Panel lesen (Text=utf8, Binaer=base64).
   // TB-Software: Debug-/Werkzeug-Menü — Logs-Ordner öffnen + Entwicklertools umschalten.
   ipcMain.handle('tb-open-logs', async () => {
-    const dir = path.join(app.getPath('userData'), 'logs');
+    const dir = tbLogsDir();
     try {
       fsSync.mkdirSync(dir, { recursive: true });
     } catch {
@@ -3257,7 +3259,7 @@ async function appMain() {
   });
   // TB-Software (Milestone [11]): Update-Protokoll öffnen (findbares Log des In-App-Updates).
   ipcMain.handle('tb-open-update-log', async () => {
-    const p = path.join(app.getPath('userData'), 'logs', 'tb-update.log');
+    const p = path.join(tbLogsDir(), 'tb-update.log');
     try {
       fsSync.mkdirSync(path.dirname(p), { recursive: true });
       if (!fsSync.existsSync(p)) {
