@@ -58,8 +58,8 @@ export function chatFolderName(title: string | null | undefined, sessionId: stri
 /** Detail-Segmentname: NNNN__<iso>.md (laufende Nummer + kompakter ISO-Zeitstempel). */
 export function detailFileName(index: number, iso: string): string {
   const n = String(Math.max(0, Math.trunc(index))).padStart(4, '0');
-  // 2026-09-19T20:51:03.123Z -> 2026-09-19T205103
-  const compact = iso.replace(/\.\d+Z?$/, '').replace(/:/g, '').replace(/[^0-9T-]/g, '');
+  // 2026-09-19T20:51:03(.123Z | +00:00) -> 2026-09-19T205103 (sekundengenau, robust)
+  const compact = iso.slice(0, 19).replace(/:/g, '');
   return `${n}__${compact}.md`;
 }
 

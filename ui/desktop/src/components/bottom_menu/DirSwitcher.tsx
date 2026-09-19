@@ -127,8 +127,11 @@ export const DirSwitcher: React.FC<DirSwitcherProps> = ({
       return;
     }
 
+    // TB-Software: Beim Öffnen den AKTUELLEN Arbeitspfad ins Textfeld vorbelegen — so ist er
+    // lesbar und kopierbar (vorher war das Feld leer). Bearbeiten/Wechseln bleibt möglich.
+    setCustomDirInput(workingDir);
     void refreshMenuData();
-  }, [isMenuOpen, refreshMenuData]);
+  }, [isMenuOpen, refreshMenuData, workingDir]);
 
   const applyDirectoryChange = async (newDir: string) => {
     // TB-Software: Existiert das (getippte) Verzeichnis nicht, per nativem Dialog fragen,

@@ -111,7 +111,9 @@ async function readJson<T>(p: string): Promise<T | null> {
 }
 
 function compactIsoFileName(iso: string): string {
-  return iso.replace(/\.\d+Z?$/, '').replace(/:/g, '').replace(/[^0-9T-]/g, '');
+  // ISO -> YYYY-MM-DDTHHMMSS (sekundengenau, ohne Bruchteile/Zeitzone). Robust auch für den
+  // rfc3339-Stempel des Backends (…+00:00), dessen Offset die alte Regex nicht entfernt hat.
+  return iso.slice(0, 19).replace(/:/g, '');
 }
 
 interface RootIndex {

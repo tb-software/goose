@@ -32,6 +32,8 @@ describe('knowledgePaths', () => {
   it('names detail segments NNNN__<compact-iso>.md', () => {
     expect(detailFileName(1, '2026-09-19T20:51:03.123Z')).toBe('0001__2026-09-19T205103.md');
     expect(detailFileName(42, '2026-09-19T20:51:03Z')).toBe('0042__2026-09-19T205103.md');
+    // Backend-rfc3339 mit Offset (…+00:00) muss ebenfalls sauber werden (kein langer Nano-String).
+    expect(detailFileName(1, '2026-09-19T09:23:10.128703100+00:00')).toBe('0001__2026-09-19T092310.md');
   });
 
   it('expands ~ and %USERPROFILE%', () => {
