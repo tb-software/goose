@@ -1,5 +1,8 @@
+# TB-Software: statisch gegen die CRT linken (+crt-static) -> goose.exe hat KEINE externe
+# VCRUNTIME/UCRT-DLL-Abhängigkeit mehr und startet auf JEDEM Windows (Fix KI04: goose serve
+# exited 0xC0000135 = DLL not found). /FORCE:MULTIPLE + größerer Stack bleiben erhalten.
 [target.x86_64-pc-windows-msvc]
-rustflags = ["-C", "link-args=/FORCE:MULTIPLE /STACK:8388608"]
+rustflags = ["-C", "link-args=/FORCE:MULTIPLE /STACK:8388608", "-C", "target-feature=+crt-static"]
 
 [target.aarch64-pc-windows-msvc]
-rustflags = ["-C", "link-args=/FORCE:MULTIPLE /STACK:8388608"]
+rustflags = ["-C", "link-args=/FORCE:MULTIPLE /STACK:8388608", "-C", "target-feature=+crt-static"]
