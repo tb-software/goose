@@ -20,6 +20,9 @@ use tokio::task::JoinHandle;
 use tracing::info;
 use tracing::log::warn;
 
+// TB-Software Milestone [12]: parallele Wissens-Ablage bei der Verdichtung.
+pub(crate) mod knowledge_spool;
+
 pub use goose_context_management::DEFAULT_COMPACTION_THRESHOLD;
 
 pub(crate) const TOOLCALL_SUMMARIZATION_BATCH_SIZE: usize = 10;
@@ -132,6 +135,17 @@ pub async fn compact_messages(
 
     let (summary_message, summarization_usage) =
         do_compact(provider, model_config, session_id, messages_to_compact).await?;
+
+    // TB-Software [12]: herausfallenden Verlauf + Zusammenfassung als Wissen ablegen (best effort,
+    // nie fatal — beeinflusst die Verdichtung nicht). Deckt über diesen Chokepoint alle Pfade ab
+    // (auto/manuell/state_machine).
+    knowledge_spool::spool_compaction(
+        session_id,
+        &model_config.model_name,
+        messages_to_compact,
+        &summary_message.as_concat_text(),
+    )
+    .await;
 
     // Create the final message list with updated visibility metadata:
     // 1. Original messages become user_visible but not agent_visible

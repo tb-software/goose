@@ -44,6 +44,10 @@ import { GooseServeLeaseRegistry, type GooseServeLease } from './gooseServeLease
 import { acpWebSocketUrlFromHttpBase, normalizeAcpHttpBaseUrl } from './acp/url';
 import { expandTilde, sanitizeGoosePathRoot } from './utils/pathUtils';
 import log, { tbLogsDir } from './utils/logger';
+import {
+  knowledgeSpoolDir,
+  startKnowledgeSpoolWatcher,
+} from './tb/knowledge/spoolWatcher';
 import { ensureWinShims } from './utils/winShims';
 import { addRecentDir, loadRecentDirs } from './utils/recentDirs';
 import { formatAppName, errorMessage, formatErrorForLogging } from './utils/conversionUtils';
@@ -1297,6 +1301,11 @@ const createChat = async (
 
     const loginShellPath = await getLoginShellPath(log);
 
+    // TB-Software [12]: Wissens-Ablage — Spool-Ordner, den das Backend beim Verdichten befüllt und
+    // den der Main-Prozess in die `.knowledge/`-Struktur überführt.
+    const knowledgeSpool = knowledgeSpoolDir(app.getPath('userData'));
+    startKnowledgeSpoolWatcher(knowledgeSpool);
+
     let gooseServeResult: Awaited<ReturnType<typeof startGooseServe>>;
     try {
       gooseServeResult = await startGooseServe({
@@ -1305,6 +1314,7 @@ const createChat = async (
         tls: true,
         env: {
           GOOSE_PATH_ROOT: appConfig.GOOSE_PATH_ROOT as string | undefined,
+          TB_KNOWLEDGE_SPOOL_DIR: knowledgeSpool,
         },
         loginShellPath,
         isPackaged: app.isPackaged,
