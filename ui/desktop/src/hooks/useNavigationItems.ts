@@ -1,6 +1,7 @@
 import {
   AppWindow,
   Clock,
+  Cloud,
   FileText,
   History,
   MessageSquarePlus,
@@ -25,6 +26,7 @@ export interface NavItem {
 export const NAV_ITEMS: NavItem[] = [
   { id: 'home', path: '/', label: 'New Chat', icon: MessageSquarePlus },
   { id: 'tb-search', path: '/tb-search', label: 'Suche', icon: Search },
+  { id: 'wolke', path: '/wolke', label: 'Wolke', icon: Cloud },
   { id: 'recipes', path: '/recipes', label: 'Recipes', icon: FileText },
   { id: 'skills', path: '/skills', label: 'Skills', icon: Zap },
   { id: 'apps', path: '/apps', label: 'Apps', icon: AppWindow },

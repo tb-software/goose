@@ -96,6 +96,27 @@ export interface CreateChatWindowOptions {
   recipeId?: string;
 }
 
+// TB-Software: Wolke-Typen (Milestone [13]) — Spiegel von src/tb/wolke/*.
+export type TbWolkeConfig = {
+  enabled: boolean;
+  queueBase: string;
+  clientId: string;
+  clientName: string;
+};
+export type TbWolkeStatus = {
+  phase: 'stopped' | 'starting' | 'running' | 'error';
+  clientId: string;
+  clientName: string;
+  queueBase: string;
+  registered: boolean;
+  activeRuns: number;
+  requestsServed: number;
+  requestsFailed: number;
+  lastError: string | null;
+  startedAt: number | null;
+  lastPollAt: number | null;
+};
+
 // Define the API types in a single place
 type ElectronAPI = {
   platform: string;
@@ -218,6 +239,14 @@ type ElectronAPI = {
   tbWatchFile: (path: string) => Promise<boolean>;
   tbUnwatchFile: () => Promise<boolean>;
   onTbFileChanged: (cb: (path: string) => void) => () => void;
+  // TB-Software: Wolke — PC als Wolken-Client (Milestone [13]).
+  tbWolkeGet: () => Promise<{ config: TbWolkeConfig; status: TbWolkeStatus }>;
+  tbWolkeSetConfig: (
+    patch: Partial<TbWolkeConfig>
+  ) => Promise<{ config: TbWolkeConfig; status: TbWolkeStatus }>;
+  tbWolkeStart: () => Promise<TbWolkeStatus>;
+  tbWolkeStop: () => Promise<TbWolkeStatus>;
+  onTbWolkeStatus: (cb: (status: TbWolkeStatus) => void) => () => void;
   tbExportChat: (fileName: string, content: string) => Promise<{ ok: boolean; path?: string; error?: string }>;
   tbEnsureDirectory: (
     dirPath: string
@@ -411,6 +440,16 @@ const electronAPI: ElectronAPI = {
     const listener = (_e: unknown, p: string) => cb(p);
     ipcRenderer.on('tb-file-changed', listener);
     return () => ipcRenderer.removeListener('tb-file-changed', listener);
+  },
+  // TB-Software: Wolke (Milestone [13]).
+  tbWolkeGet: () => ipcRenderer.invoke('tb-wolke-get'),
+  tbWolkeSetConfig: (patch: Partial<TbWolkeConfig>) => ipcRenderer.invoke('tb-wolke-set-config', patch),
+  tbWolkeStart: () => ipcRenderer.invoke('tb-wolke-start'),
+  tbWolkeStop: () => ipcRenderer.invoke('tb-wolke-stop'),
+  onTbWolkeStatus: (cb: (status: TbWolkeStatus) => void) => {
+    const listener = (_e: unknown, s: TbWolkeStatus) => cb(s);
+    ipcRenderer.on('tb-wolke-status', listener);
+    return () => ipcRenderer.removeListener('tb-wolke-status', listener);
   },
   launchApp: (app: GooseApp) => ipcRenderer.invoke('launch-app', app),
   refreshApp: (app: GooseApp) => ipcRenderer.invoke('refresh-app', app),

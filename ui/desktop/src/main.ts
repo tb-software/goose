@@ -33,6 +33,8 @@ import { startGooseServe } from './gooseServe';
 import { ensureTbDefaults } from './tb/bootstrapDefaults';
 import { registerRiskConsentIpc } from './tb/consent/riskConsent';
 import { registerTbTagsIpc } from './tb/tags/tbTags';
+import { registerTbWolkeIpc } from './tb/wolke/tbWolke';
+import { initWolke } from './tb/wolke/wolkeBridge';
 import {
   backupConfigOnExit,
   resetToFactory,
@@ -496,9 +498,16 @@ ensureTbDefaults();
 registerRiskConsentIpc();
 // TB-Software: IPC für den Chat-Tag-Manager (Milestone [10]).
 registerTbTagsIpc();
+// TB-Software: IPC für die Wolke — PC als Wolken-Client (Milestone [13]).
+registerTbWolkeIpc();
 
 app.whenReady().then(() => {
   appConfig.GOOSE_LOCALE = getConfiguredGooseLocale();
+});
+
+// TB-Software [13]: Wolke bei Bedarf automatisch verbinden (wenn zuletzt aktiviert gelassen).
+app.whenReady().then(() => {
+  void initWolke();
 });
 
 // Main-process net.fetch and renderer WebSockets: pin to the exact cert once known.
