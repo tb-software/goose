@@ -24,6 +24,7 @@ import {
   DropdownMenuSeparator,
 } from '../ui/dropdown-menu';
 import { useTbTags } from '../../tb/tags/TagContext';
+import { useTbArchive } from '../../tb/chats/TbArchiveContext';
 import TagManagerDialog from '../../tb/tags/TagManagerDialog';
 import {
   NAV_ITEMS,
@@ -37,7 +38,6 @@ import { SessionIndicators } from '../SessionIndicators';
 import {
   acpRenameSession,
   acpForkSession,
-  acpDeleteSession,
   type SessionListItem,
 } from '../../acp/sessions';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/Tooltip';
@@ -205,6 +205,7 @@ const SessionRow: React.FC<SessionRowProps> = ({
   const [tooltipOpen, setTooltipOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const { tags, tagsForChat, toggleChatTag } = useTbTags();
+  const { archive } = useTbArchive();
   const chatTags = tagsForChat(session.id);
   const isStreaming = status?.streamState === 'streaming';
   const hasError = status?.streamState === 'error';
@@ -231,15 +232,12 @@ const SessionRow: React.FC<SessionRowProps> = ({
   const handleDelete = async () => {
     setMenuOpen(false);
     const ok = window.confirm(
-      `Chat „${session.name || intl.formatMessage(i18n.untitledSession)}" wirklich löschen? Das kann nicht rückgängig gemacht werden.`
+      `Chat „${session.name || intl.formatMessage(i18n.untitledSession)}" in den Papierkorb verschieben? 60 Tage wiederherstellbar, danach endgültig gelöscht.`
     );
     if (!ok) return;
-    try {
-      await acpDeleteSession(session.id);
-      onChanged();
-    } catch (e) {
-      console.error('Löschen fehlgeschlagen', e);
-    }
+    // TB-Software [15]: archivieren statt physisch löschen.
+    archive({ id: session.id, name: session.name, workingDir: session.workingDir });
+    onChanged();
   };
 
   return (

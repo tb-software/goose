@@ -103,6 +103,12 @@ export type TbWolkeConfig = {
   clientId: string;
   clientName: string;
 };
+export type TbArchiveEntry = {
+  archivedAt: number;
+  deleteAfter: number;
+  workingDir?: string;
+  name?: string;
+};
 export type TbWolkeStatus = {
   phase: 'stopped' | 'starting' | 'running' | 'error';
   clientId: string;
@@ -247,6 +253,13 @@ type ElectronAPI = {
   tbWolkeStart: () => Promise<TbWolkeStatus>;
   tbWolkeStop: () => Promise<TbWolkeStatus>;
   onTbWolkeStatus: (cb: (status: TbWolkeStatus) => void) => () => void;
+  // TB-Software: Chat-Archiv/Papierkorb (Milestone [15]).
+  tbArchiveGet: () => Promise<{ archived: Record<string, TbArchiveEntry> }>;
+  tbArchiveSave: (data: { archived: Record<string, TbArchiveEntry> }) => Promise<{ ok: boolean; error?: string }>;
+  tbArchiveCleanup: (
+    sessionId: string,
+    workingDir?: string
+  ) => Promise<{ ok: boolean; removed?: string[]; error?: string }>;
   tbExportChat: (fileName: string, content: string) => Promise<{ ok: boolean; path?: string; error?: string }>;
   tbEnsureDirectory: (
     dirPath: string
@@ -451,6 +464,11 @@ const electronAPI: ElectronAPI = {
     ipcRenderer.on('tb-wolke-status', listener);
     return () => ipcRenderer.removeListener('tb-wolke-status', listener);
   },
+  // TB-Software: Chat-Archiv/Papierkorb (Milestone [15]).
+  tbArchiveGet: () => ipcRenderer.invoke('tb-archive-get'),
+  tbArchiveSave: (data: unknown) => ipcRenderer.invoke('tb-archive-save', data),
+  tbArchiveCleanup: (sessionId: string, workingDir?: string) =>
+    ipcRenderer.invoke('tb-archive-cleanup', sessionId, workingDir),
   launchApp: (app: GooseApp) => ipcRenderer.invoke('launch-app', app),
   refreshApp: (app: GooseApp) => ipcRenderer.invoke('refresh-app', app),
   closeApp: (appName: string) => ipcRenderer.invoke('close-app', appName),

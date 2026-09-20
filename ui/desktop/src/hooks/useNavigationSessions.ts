@@ -10,6 +10,7 @@ import {
   type SessionListItem,
 } from '../acp/sessions';
 import { groupSessionsByProject } from '../utils/projectSessions';
+import { TB_ARCHIVE_CHANGED } from '../tb/chats/TbArchiveContext';
 
 const MAX_RECENT_SESSIONS = 25;
 
@@ -178,12 +179,21 @@ export function useNavigationSessions() {
       );
     };
 
+    // TB-Software [15]: nach Archiv-Änderungen die Recents neu laden (archivierte werden ausgeblendet).
+    const handleArchiveChanged = () => {
+      acpListRecentSessions(MAX_RECENT_SESSIONS)
+        .then((sessions) => setRecentSessions(sessions))
+        .catch((error) => console.error('Failed to fetch sessions:', error));
+    };
+
     window.addEventListener(AppEvents.SESSION_DELETED, handleSessionDeleted);
     window.addEventListener(AppEvents.SESSION_RENAMED, handleSessionRenamed);
+    window.addEventListener(TB_ARCHIVE_CHANGED, handleArchiveChanged);
 
     return () => {
       window.removeEventListener(AppEvents.SESSION_DELETED, handleSessionDeleted);
       window.removeEventListener(AppEvents.SESSION_RENAMED, handleSessionRenamed);
+      window.removeEventListener(TB_ARCHIVE_CHANGED, handleArchiveChanged);
     };
   }, []);
 

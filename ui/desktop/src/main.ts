@@ -35,6 +35,7 @@ import { registerRiskConsentIpc } from './tb/consent/riskConsent';
 import { registerTbTagsIpc } from './tb/tags/tbTags';
 import { registerTbWolkeIpc } from './tb/wolke/tbWolke';
 import { initWolke } from './tb/wolke/wolkeBridge';
+import { registerTbArchiveIpc } from './tb/chats/tbArchive';
 import {
   backupConfigOnExit,
   resetToFactory,
@@ -500,6 +501,8 @@ registerRiskConsentIpc();
 registerTbTagsIpc();
 // TB-Software: IPC für die Wolke — PC als Wolken-Client (Milestone [13]).
 registerTbWolkeIpc();
+// TB-Software: IPC für Chat-Archiv/Papierkorb (Milestone [15]).
+registerTbArchiveIpc();
 
 app.whenReady().then(() => {
   appConfig.GOOSE_LOCALE = getConfiguredGooseLocale();

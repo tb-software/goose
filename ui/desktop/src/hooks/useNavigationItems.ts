@@ -8,6 +8,7 @@ import {
   Puzzle,
   Search,
   Settings,
+  Trash2,
   Zap,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -33,6 +34,7 @@ export const NAV_ITEMS: NavItem[] = [
   { id: 'scheduler', path: '/schedules', label: 'Scheduler', icon: Clock },
   { id: 'extensions', path: '/extensions', label: 'Extensions', icon: Puzzle },
   { id: 'sessions', path: '/sessions', label: 'Session History', icon: History },
+  { id: 'papierkorb', path: '/papierkorb', label: 'Papierkorb', icon: Trash2 },
 ];
 
 /** Settings is rendered separately, pinned to the bottom of the sidebar. */

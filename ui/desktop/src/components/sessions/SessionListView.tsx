@@ -45,7 +45,6 @@ import {
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
 import {
-  acpDeleteSession,
   acpExportSession,
   acpForkSession,
   acpImportSession,
@@ -55,9 +54,7 @@ import {
   type SessionListItem,
 } from '../../acp/sessions';
 import type { SessionExportFormat } from '@aaif/goose-acp-client';
-import { acpChatSessionActions } from '../../acp/chatSessionStore';
-import { cancelAcpPermissionRequestsForSession } from '../../acp/permissionRequests';
-import { cancelAcpElicitationRequestsForSession } from '../../acp/elicitationRequests';
+import { useTbArchive, TB_ARCHIVE_CHANGED } from '../../tb/chats/TbArchiveContext';
 import { getSearchShortcutText } from '../../utils/keyboardShortcuts';
 
 const i18n = defineMessages({
@@ -108,11 +105,11 @@ const i18n = defineMessages({
     defaultMessage: 'Try adjusting your search terms',
   },
   loadingMore: { id: 'sessions.loadingMore', defaultMessage: 'Loading more sessions...' },
-  deleteTitle: { id: 'sessions.delete.title', defaultMessage: 'Delete Session' },
+  deleteTitle: { id: 'sessions.delete.title', defaultMessage: 'In den Papierkorb' },
   deleteMessage: {
     id: 'sessions.delete.message',
     defaultMessage:
-      'Are you sure you want to delete the session "{name}"? This action cannot be undone.',
+      'Chat „{name}" in den Papierkorb verschieben? Er wird ausgeblendet, bleibt aber 60 Tage wiederherstellbar. Endgültiges Löschen erfolgt im Papierkorb.',
   },
   duplicateSuccess: {
     id: 'sessions.toast.duplicated',
@@ -122,7 +119,7 @@ const i18n = defineMessages({
     id: 'sessions.toast.duplicateFailed',
     defaultMessage: 'Failed to duplicate session: {error}',
   },
-  deleteSuccess: { id: 'sessions.toast.deleted', defaultMessage: 'Session deleted successfully' },
+  deleteSuccess: { id: 'sessions.toast.deleted', defaultMessage: 'In den Papierkorb verschoben' },
   deleteFailed: {
     id: 'sessions.toast.deleteFailed',
     defaultMessage: 'Failed to delete session "{name}": {error}',
@@ -324,6 +321,7 @@ interface SessionListViewProps {
 
 const SessionListView: React.FC<SessionListViewProps> = React.memo(({ onSelectSession }) => {
   const intl = useIntl();
+  const { archive } = useTbArchive();
   const [sessions, setSessions] = useState<SessionListItem[]>([]);
   const [isPrefetchingSessions, setIsPrefetchingSessions] = useState(false);
   const [dateGroups, setDateGroups] = useState<DateGroup[]>([]);
@@ -611,19 +609,15 @@ const SessionListView: React.FC<SessionListViewProps> = React.memo(({ onSelectSe
     setShowDeleteConfirmation(false);
     const sessionToDeleteId = sessionToDelete.id;
     const sessionName = sessionToDelete.name;
+    const sessionWorkingDir = sessionToDelete.workingDir;
     setSessionToDelete(null);
 
     try {
-      await acpDeleteSession(sessionToDeleteId);
+      // TB-Software [15]: „Löschen" = archivieren (Papierkorb, 60 Tage), NICHT physisch löschen.
+      archive({ id: sessionToDeleteId, name: sessionName, workingDir: sessionWorkingDir });
       toast.success(intl.formatMessage(i18n.deleteSuccess));
-      window.dispatchEvent(
-        new CustomEvent(AppEvents.SESSION_DELETED, { detail: { sessionId: sessionToDeleteId } })
-      );
-      cancelAcpPermissionRequestsForSession(sessionToDeleteId);
-      cancelAcpElicitationRequestsForSession(sessionToDeleteId);
-      acpChatSessionActions.deleteSnapshot(sessionToDeleteId);
     } catch (error) {
-      console.error('Error deleting session:', error);
+      console.error('Error archiving session:', error);
       toast.error(
         intl.formatMessage(i18n.deleteFailed, {
           name: sessionName,
@@ -632,7 +626,7 @@ const SessionListView: React.FC<SessionListViewProps> = React.memo(({ onSelectSe
       );
     }
     await loadSessions();
-  }, [sessionToDelete, loadSessions, intl]);
+  }, [sessionToDelete, loadSessions, intl, archive]);
 
   const handleCancelDelete = useCallback(() => {
     setShowDeleteConfirmation(false);
@@ -739,6 +733,14 @@ const SessionListView: React.FC<SessionListViewProps> = React.memo(({ onSelectSe
       toast.error(`Failed to copy: ${errorMessage(error, 'Unknown error')}`);
     }
   }, [intl, shareLink]);
+
+  // TB-Software [15]: bei Archiv-Änderungen (archivieren/wiederherstellen/löschen) neu laden,
+  // damit archivierte Chats hier verschwinden bzw. wiederhergestellte erscheinen.
+  useEffect(() => {
+    const h = () => void loadSessions();
+    window.addEventListener(TB_ARCHIVE_CHANGED, h);
+    return () => window.removeEventListener(TB_ARCHIVE_CHANGED, h);
+  }, [loadSessions]);
 
   const handleImportSession = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {

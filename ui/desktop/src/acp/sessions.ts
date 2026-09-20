@@ -136,6 +136,19 @@ function sessionInfoToListItem(s: SessionInfo): SessionListItem {
 export interface SessionListFilter {
   keyword?: string;
   includeAcp: boolean;
+  // TB-Software [15]: archivierte Chats standardmäßig ausblenden; nur der Papierkorb setzt dies true.
+  includeArchived?: boolean;
+}
+
+// TB-Software [15]: Renderer-weiter Cache der archivierten Session-IDs. Wird vom TbArchiveProvider
+// synchron gehalten, damit ALLE Listen (History + Sidebar) archivierte Chats ausblenden.
+const tbArchivedIds = new Set<string>();
+export function tbSetArchivedIds(ids: Iterable<string>): void {
+  tbArchivedIds.clear();
+  for (const id of ids) tbArchivedIds.add(id);
+}
+export function tbIsArchived(id: string): boolean {
+  return tbArchivedIds.has(id);
 }
 
 const SESSION_LIST_TYPES = ['user', 'scheduled'] as const;
@@ -159,8 +172,9 @@ export async function acpListSessions(
   }
   request._meta = meta;
   const response = await client.connection.agent.request(methods.agent.session.list, request);
+  const items = response.sessions.map(sessionInfoToListItem);
   return {
-    sessions: response.sessions.map(sessionInfoToListItem),
+    sessions: filter.includeArchived ? items : items.filter((s) => !tbIsArchived(s.id)),
     nextCursor: response.nextCursor ?? null,
   };
 }
@@ -174,7 +188,29 @@ export async function acpListRecentSessions(maxSessions: number): Promise<Sessio
   const response = await client.connection.agent.request(methods.agent.session.list, {
     _meta: { types: SESSION_LIST_TYPES },
   });
-  return response.sessions.slice(0, maxSessions).map(sessionInfoToListItem);
+  return response.sessions
+    .map(sessionInfoToListItem)
+    .filter((s) => !tbIsArchived(s.id))
+    .slice(0, maxSessions);
+}
+
+// TB-Software [15]: alle archivierten Chats (für den Papierkorb). Paginiert die volle Liste inkl.
+// Archivierter und behält nur die, die im Archiv-Cache stehen.
+export async function acpListArchivedSessions(maxPages = 40): Promise<SessionListItem[]> {
+  const out: SessionListItem[] = [];
+  let cursor: string | null | undefined = undefined;
+  for (let page = 0; page < maxPages; page++) {
+    const resp: SessionListPage = await acpListSessions(cursor, {
+      includeAcp: false,
+      includeArchived: true,
+    });
+    for (const s of resp.sessions) {
+      if (tbIsArchived(s.id)) out.push(s);
+    }
+    if (!resp.nextCursor) break;
+    cursor = resp.nextCursor;
+  }
+  return out;
 }
 
 export async function acpGetSessionListItem(sessionId: string): Promise<SessionListItem> {

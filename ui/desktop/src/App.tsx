@@ -12,6 +12,8 @@ import TelemetryConsentPrompt from './components/TelemetryConsentPrompt';
 import OnboardingGuard from './components/onboarding/OnboardingGuard';
 import RiskConsentGate from './tb/consent/RiskConsentGate';
 import { TbTagProvider } from './tb/tags/TagContext';
+import { TbArchiveProvider } from './tb/chats/TbArchiveContext';
+import { PapierkorbView } from './tb/chats/PapierkorbView';
 import { createSession } from './sessions';
 import { acpListSessions, acpDeleteSession } from './acp/sessions';
 
@@ -685,6 +687,7 @@ export function AppInner() {
               <Route path="skills" element={<SkillsRoute />} />
               <Route path="tb-search" element={<TbSearchRoute />} />
               <Route path="wolke" element={<WolkeRoute />} />
+              <Route path="papierkorb" element={<PapierkorbView />} />
               <Route path="permission" element={<PermissionRoute />} />
             </Route>
           </Routes>
@@ -701,11 +704,13 @@ export default function App() {
         <ModelAndProviderProvider>
           <RiskConsentGate>
             <TbTagProvider>
-              <HashRouter>
-                <AppInner />
-              </HashRouter>
-              <AnnouncementModal />
-              <TelemetryConsentPrompt />
+              <TbArchiveProvider>
+                <HashRouter>
+                  <AppInner />
+                </HashRouter>
+                <AnnouncementModal />
+                <TelemetryConsentPrompt />
+              </TbArchiveProvider>
             </TbTagProvider>
           </RiskConsentGate>
         </ModelAndProviderProvider>
