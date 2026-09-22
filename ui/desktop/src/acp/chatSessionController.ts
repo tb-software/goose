@@ -221,6 +221,9 @@ async function submitMessage(
   }
 }
 
+// TB-Software: Nach wie vielen ms ein unbestätigter Abbruch zwangsweise entsperrt wird.
+const CANCEL_CONFIRM_TIMEOUT_MS = 20000;
+
 function stop(sessionId: string): void {
   const storedPromptAttemptId = acpChatSessionStore.getSnapshot(sessionId)?.activePromptAttemptId;
   const hasStoredAcpPrompt = storedPromptAttemptId !== null && storedPromptAttemptId !== undefined;
@@ -232,6 +235,18 @@ function stop(sessionId: string): void {
     acpCancelPrompt(sessionId).catch((error) => {
       console.warn('Failed to cancel ACP prompt:', error);
     });
+    // TB-Software: Watchdog — bestätigt das Backend den Abbruch nicht (verlorene session/prompt-
+    // Antwort oder Connection-Recovery), bleibt der Chat sonst dauerhaft gesperrt. Nach kurzer Frist
+    // den Cancel-Block zwangsweise lösen, damit wieder eingegeben werden kann. Löst nur, wenn genau
+    // dieser Abbruch noch hängt (kein Eingriff, falls längst geklärt oder neuer Turn gestartet).
+    const attemptId = storedPromptAttemptId;
+    setTimeout(() => {
+      const snapshot = acpChatSessionStore.getSnapshot(sessionId);
+      if (snapshot?.pendingCancelPromptAttemptId === attemptId) {
+        console.warn('[TB] Cancel-Watchdog: Abbruch nach STOP nicht bestätigt — Chat wird entsperrt.');
+        acpChatSessionActions.clearPromptCancellation(sessionId, attemptId);
+      }
+    }, CANCEL_CONFIRM_TIMEOUT_MS);
     return;
   }
 

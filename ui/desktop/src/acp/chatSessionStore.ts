@@ -708,6 +708,13 @@ function applyChatStateChanges(entry: StoreEntry, changes: AcpChatStateChange[])
         }
         if (change.activeRunId !== undefined) {
           entry.activeRunId = change.activeRunId;
+          // TB-Software: Meldet das Backend das Ende des Laufs (activeRunId=null), einen evtl. nach
+          // STOP hängenden Cancel-Block lösen. Ohne das bleibt der Chat gesperrt, wenn die zugehörige
+          // session/prompt-Antwort verloren geht (nur ein Reload half bisher).
+          if (change.activeRunId === null && entry.pendingCancelPromptAttemptId !== null) {
+            entry.pendingCancelPromptAttemptId = null;
+            entry.promptCancellationRestoreState = null;
+          }
         }
         break;
       case 'localSteerConfirmed':

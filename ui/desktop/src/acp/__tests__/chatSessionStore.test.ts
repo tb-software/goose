@@ -466,6 +466,28 @@ describe('acpChatSessionStore', () => {
     expect(clearedSnapshot.activeRunId).toBeNull();
   });
 
+  // TB-Software: Nach STOP darf ein hängender Cancel-Block den Chat nicht dauerhaft sperren.
+  // Meldet das Backend das Lauf-Ende (activeRunId=null), muss pendingCancel automatisch gelöst werden.
+  it('clears a pending prompt cancellation when the backend reports the run ended', () => {
+    const currentSessionId = sessionId('session-1');
+
+    acpChatSessionActions.startPromptAttempt(currentSessionId, 'attempt-1');
+    acpChatSessionActions.applyAcpSessionNotification(
+      activeRunNotification(currentSessionId, 'run-1')
+    );
+    acpChatSessionActions.startPromptCancellation(currentSessionId, 'attempt-1');
+    expect(acpChatSessionStore.getSnapshot(currentSessionId)?.pendingCancelPromptAttemptId).toBe(
+      'attempt-1'
+    );
+
+    const settled = acpChatSessionActions.applyAcpSessionNotification(
+      activeRunNotification(currentSessionId, null)
+    );
+
+    expect(settled.pendingCancelPromptAttemptId).toBeNull();
+    expect(acpChatSessionStore.getSnapshot(currentSessionId)?.pendingCancelPromptAttemptId).toBeNull();
+  });
+
   it('clears active run ids when the prompt attempt finishes', () => {
     const currentSessionId = sessionId('session-1');
 
