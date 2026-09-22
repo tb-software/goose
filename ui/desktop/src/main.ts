@@ -36,6 +36,7 @@ import { registerTbTagsIpc } from './tb/tags/tbTags';
 import { registerTbWolkeIpc } from './tb/wolke/tbWolke';
 import { initWolke } from './tb/wolke/wolkeBridge';
 import { registerTbArchiveIpc } from './tb/chats/tbArchive';
+import { registerTbForecastIpc } from './tb/status/tbForecast';
 import {
   backupConfigOnExit,
   resetToFactory,
@@ -503,6 +504,8 @@ registerTbTagsIpc();
 registerTbWolkeIpc();
 // TB-Software: IPC für Chat-Archiv/Papierkorb (Milestone [15]).
 registerTbArchiveIpc();
+// TB-Software: IPC für die Zeit-Prognose per auto:chat (Milestone [16]).
+registerTbForecastIpc();
 
 app.whenReady().then(() => {
   appConfig.GOOSE_LOCALE = getConfiguredGooseLocale();

@@ -3,7 +3,7 @@
 // Sparkline-Graphen des Kontext-Token-Verlaufs. Bewusst self-contained: nutzt nur
 // die Werte, die BaseChat ohnehin schon berechnet (Tokens/Kosten/messages/session).
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { MessageSquare, Coins, Gauge, Clock, Database } from 'lucide-react';
+import { MessageSquare, Coins, Gauge, Clock, Database, Timer } from 'lucide-react';
 
 interface TbMetricsBarProps {
   messages: Array<{ role?: string; created?: number }>;
@@ -12,7 +12,17 @@ interface TbMetricsBarProps {
   cost?: number;
   sessionStartMs?: number;
   sessionId?: string;
+  // TB-Software [16]: laufender Turn — verstrichene Zeit + prognostizierte Restzeit.
+  turnActive?: boolean;
+  turnElapsedMs?: number;
+  turnRemainingMs?: number | null;
+  turnSource?: 'ai' | 'history' | null;
 }
+
+const fmtMMSS = (ms: number): string => {
+  const total = Math.max(0, Math.round(ms / 1000));
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+};
 
 // TB-Software: Token-Verlauf PRO SITZUNG merken. Vorher startete die Reihe bei jedem
 // Chat-Wechsel/Remount leer -> die Kurve „sah immer gleich aus" (kurze steigende Linie).
@@ -86,6 +96,10 @@ export const TbMetricsBar: React.FC<TbMetricsBarProps> = ({
   cost,
   sessionStartMs,
   sessionId,
+  turnActive,
+  turnElapsedMs,
+  turnRemainingMs,
+  turnSource,
 }) => {
   // Kontext-Token-Verlauf mitschneiden (jede Änderung ein Punkt), gedeckelt + PRO SITZUNG gemerkt.
   const [series, setSeries] = useState<number[]>(() =>
@@ -162,6 +176,29 @@ export const TbMetricsBar: React.FC<TbMetricsBarProps> = ({
         value={fmtDuration(now - startMs)}
         title="Dauer dieser Sitzung"
       />
+      {turnActive && (
+        <div
+          className="flex items-center gap-1.5 whitespace-nowrap text-text-accent"
+          title={
+            turnRemainingMs == null
+              ? 'Läuft — noch keine Prognose (zu wenig Verlauf).'
+              : `Verstrichen ${fmtMMSS(turnElapsedMs ?? 0)}, geschätzte Restzeit ~${fmtMMSS(
+                  turnRemainingMs
+                )}${turnSource === 'ai' ? ' (KI-Schätzung)' : ' (aus bisherigen Turns)'}`
+          }
+        >
+          <Timer className="w-3.5 h-3.5" />
+          <span className="font-medium tabular-nums">{fmtMMSS(turnElapsedMs ?? 0)}</span>
+          <span className="tabular-nums">
+            {turnRemainingMs == null
+              ? 'läuft …'
+              : turnRemainingMs <= 0
+                ? '· gleich fertig …'
+                : `· noch ~${fmtMMSS(turnRemainingMs)}`}
+          </span>
+          {turnSource === 'ai' && <span title="KI-verfeinert (auto:chat)">⚡</span>}
+        </div>
+      )}
       <div
         className="ml-auto flex items-center gap-2"
         title={

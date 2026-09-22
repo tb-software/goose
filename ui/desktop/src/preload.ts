@@ -260,6 +260,12 @@ type ElectronAPI = {
     sessionId: string,
     workingDir?: string
   ) => Promise<{ ok: boolean; removed?: string[]; error?: string }>;
+  // TB-Software: Zeit-Prognose per auto:chat (Milestone [16], Teil C).
+  tbForecast: (args: {
+    task: string;
+    elapsedS: number;
+    phase: string;
+  }) => Promise<{ ok: boolean; text?: string; error?: string }>;
   tbExportChat: (fileName: string, content: string) => Promise<{ ok: boolean; path?: string; error?: string }>;
   tbEnsureDirectory: (
     dirPath: string
@@ -469,6 +475,8 @@ const electronAPI: ElectronAPI = {
   tbArchiveSave: (data: unknown) => ipcRenderer.invoke('tb-archive-save', data),
   tbArchiveCleanup: (sessionId: string, workingDir?: string) =>
     ipcRenderer.invoke('tb-archive-cleanup', sessionId, workingDir),
+  tbForecast: (args: { task: string; elapsedS: number; phase: string }) =>
+    ipcRenderer.invoke('tb-forecast', args),
   launchApp: (app: GooseApp) => ipcRenderer.invoke('launch-app', app),
   refreshApp: (app: GooseApp) => ipcRenderer.invoke('refresh-app', app),
   closeApp: (appName: string) => ipcRenderer.invoke('close-app', appName),

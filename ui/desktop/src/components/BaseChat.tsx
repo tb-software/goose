@@ -4,6 +4,7 @@ import { defineMessages, useIntl } from '../i18n';
 import { useLocation, useNavigate } from 'react-router';
 import { SearchView } from './conversation/SearchView';
 import LoadingGoose from './LoadingGoose';
+import { useTurnStatus } from '../tb/status/useTurnStatus';
 import ProgressiveMessageList from './ProgressiveMessageList';
 import { MainPanelLayout } from './Layout/MainPanelLayout';
 import ChatInput from './ChatInput';
@@ -135,6 +136,9 @@ export default function BaseChat({
   // Nur die aktive (sichtbare) Chat-Instanz schreibt den Titel — sonst Loop, da
   // ChatSessionsContainer mehrere BaseChat gleichzeitig gemountet haelt.
   useTbWindowTitle(session?.name, chatState, sessionId, isActiveSession);
+
+  // TB-Software [16]: Phase + Restzeit-Prognose des laufenden Turns (Indikator-Label + Footer-Timer).
+  const turnStatus = useTurnStatus(sessionId);
 
   const handleWorkingDirChange = useCallback(
     async (newDir: string) => {
@@ -490,7 +494,10 @@ export default function BaseChat({
 
           {chatState !== ChatState.Idle && (
             <div className="absolute bottom-1 left-4 z-20 pointer-events-none">
-              <LoadingGoose chatState={chatState} message={progressMessage} />
+              <LoadingGoose
+                chatState={chatState}
+                message={progressMessage || (turnStatus.active ? turnStatus.phaseLabel : undefined)}
+              />
             </div>
           )}
         </div>
@@ -556,6 +563,10 @@ export default function BaseChat({
           totalTokens={tokenState?.totalTokens ?? session?.usage?.total_tokens ?? undefined}
           contextLimit={tokenState?.contextLimit}
           cost={tokenState?.accumulatedCost ?? session?.accumulated_cost ?? undefined}
+          turnActive={turnStatus.active}
+          turnElapsedMs={turnStatus.elapsedMs}
+          turnRemainingMs={turnStatus.remainingMs}
+          turnSource={turnStatus.source}
         />
       </MainPanelLayout>
 
