@@ -12,6 +12,7 @@ import { connectGooseAcpClient } from '../../acp/gooseAcpClient';
 
 export interface WolkeTurnOptions {
   model?: string | null; // gewünschtes LLM (z. B. auto:chat / auto:code), pro Anfrage aus der Wolke.
+  thinkingEffort?: string | null; // Denk-Aufwand: low | medium | high (leer = Session-Default).
 }
 export interface WolkeAgentDriver {
   kind: string;
@@ -73,6 +74,7 @@ export async function createGooseAcpDriver(cfg: GooseAcpDriverConfig): Promise<W
 
   const sessions = new Map<string, string>();
   const appliedModel = new Map<string, string>(); // sessionId -> zuletzt gesetztes Modell
+  const appliedEffort = new Map<string, string>(); // sessionId -> zuletzt gesetzter Denk-Aufwand
   async function ensureSession(chatId: string): Promise<string> {
     const existing = sessions.get(chatId);
     if (existing) return existing;
@@ -85,19 +87,24 @@ export async function createGooseAcpDriver(cfg: GooseAcpDriverConfig): Promise<W
     return res.sessionId;
   }
 
-  // Modell pro Session setzen (nur bei Änderung), so wie die Desktop-UI via session.setConfigOption.
-  async function applyModel(sid: string, model: string | null | undefined): Promise<void> {
-    if (!model || appliedModel.get(sid) === model) return;
+  // Session-Config pro Änderung setzen (Modell / Denk-Aufwand), wie die Desktop-UI via setConfigOption.
+  async function applyOption(
+    sid: string,
+    cache: Map<string, string>,
+    configId: string,
+    value: string | null | undefined
+  ): Promise<void> {
+    if (!value || cache.get(sid) === value) return;
     try {
       await client.connection.agent.request(methods.agent.session.setConfigOption, {
         sessionId: sid,
-        configId: 'model',
-        value: model,
+        configId,
+        value,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } as any);
-      appliedModel.set(sid, model);
+      cache.set(sid, value);
     } catch {
-      /* Modell nicht setzbar -> Session-Default nutzen */
+      /* nicht setzbar -> Session-Default nutzen */
     }
   }
 
@@ -105,7 +112,8 @@ export async function createGooseAcpDriver(cfg: GooseAcpDriverConfig): Promise<W
     kind: 'goose',
     async runTurn(chatId, text, onChunk, opts) {
       const sid = await ensureSession(chatId);
-      await applyModel(sid, opts?.model);
+      await applyOption(sid, appliedModel, 'model', opts?.model);
+      await applyOption(sid, appliedEffort, 'thinking_effort', opts?.thinkingEffort);
       let acc = '';
       chunkSinks.set(sid, (t) => {
         acc += t;

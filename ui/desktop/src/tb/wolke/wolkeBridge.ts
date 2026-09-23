@@ -112,6 +112,7 @@ interface WorkItem {
   chatId: string;
   text: string;
   model?: string | null;
+  thinkingEffort?: string | null;
 }
 
 async function processOne(work: WorkItem): Promise<void> {
@@ -126,7 +127,10 @@ async function processOne(work: WorkItem): Promise<void> {
     const onChunk = (text: string) => {
       postJson(`${base}/chunk`, { text }).catch(() => {});
     };
-    const { text } = await driver.runTurn(work.chatId, work.text, onChunk, { model: work.model });
+    const { text } = await driver.runTurn(work.chatId, work.text, onChunk, {
+      model: work.model,
+      thinkingEffort: work.thinkingEffort,
+    });
     await postJson(`${base}/done`, { finalText: text });
     metrics.requestsServed++;
   } catch (e) {
