@@ -10,9 +10,17 @@ import { methods, PROTOCOL_VERSION } from '@agentclientprotocol/sdk';
 import { DEFAULT_GOOSE_MCP_HOST_CAPABILITIES } from '@aaif/goose-acp-client';
 import { connectGooseAcpClient } from '../../acp/gooseAcpClient';
 
+export interface WolkeTurnOptions {
+  model?: string | null; // gewünschtes LLM (z. B. auto:chat / auto:code), pro Anfrage aus der Wolke.
+}
 export interface WolkeAgentDriver {
   kind: string;
-  runTurn: (chatId: string, text: string, onChunk: (t: string) => void) => Promise<{ text: string }>;
+  runTurn: (
+    chatId: string,
+    text: string,
+    onChunk: (t: string) => void,
+    opts?: WolkeTurnOptions
+  ) => Promise<{ text: string }>;
   close: () => Promise<void>;
 }
 
@@ -64,6 +72,7 @@ export async function createGooseAcpDriver(cfg: GooseAcpDriverConfig): Promise<W
   } as any);
 
   const sessions = new Map<string, string>();
+  const appliedModel = new Map<string, string>(); // sessionId -> zuletzt gesetztes Modell
   async function ensureSession(chatId: string): Promise<string> {
     const existing = sessions.get(chatId);
     if (existing) return existing;
@@ -76,10 +85,27 @@ export async function createGooseAcpDriver(cfg: GooseAcpDriverConfig): Promise<W
     return res.sessionId;
   }
 
+  // Modell pro Session setzen (nur bei Änderung), so wie die Desktop-UI via session.setConfigOption.
+  async function applyModel(sid: string, model: string | null | undefined): Promise<void> {
+    if (!model || appliedModel.get(sid) === model) return;
+    try {
+      await client.connection.agent.request(methods.agent.session.setConfigOption, {
+        sessionId: sid,
+        configId: 'model',
+        value: model,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+      appliedModel.set(sid, model);
+    } catch {
+      /* Modell nicht setzbar -> Session-Default nutzen */
+    }
+  }
+
   return {
     kind: 'goose',
-    async runTurn(chatId, text, onChunk) {
+    async runTurn(chatId, text, onChunk, opts) {
       const sid = await ensureSession(chatId);
+      await applyModel(sid, opts?.model);
       let acc = '';
       chunkSinks.set(sid, (t) => {
         acc += t;
