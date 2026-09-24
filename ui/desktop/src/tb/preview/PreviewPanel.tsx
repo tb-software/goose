@@ -112,9 +112,14 @@ const PreviewBody: React.FC<{ path: string; reloadTick: number }> = ({ path, rel
         <div className="flex flex-col items-center gap-2">
           <FileWarning className="w-6 h-6" />
           <div>Keine Vorschau für diesen Dateityp.</div>
-          <button className="underline" onClick={() => void window.electron.showItemInFolder(path)}>
-            Im Explorer öffnen
-          </button>
+          <div className="flex items-center gap-3">
+            <button className="underline" onClick={() => void copyAbsolutePath(path)}>
+              Pfad kopieren
+            </button>
+            <button className="underline" onClick={() => void window.electron.showItemInFolder(path)}>
+              Im Explorer öffnen
+            </button>
+          </div>
         </div>
       </Centered>
     );
@@ -135,14 +140,19 @@ const PreviewBody: React.FC<{ path: string; reloadTick: number }> = ({ path, rel
           ) : (
             <div>Fehler: {res?.error ?? 'unbekannt'}</div>
           )}
-          {parent && parent !== path && (
-            <button
-              className="underline"
-              onClick={() => void window.electron.openDirectoryInExplorer(parent)}
-            >
-              Ordner öffnen
+          <div className="flex items-center gap-3">
+            <button className="underline" onClick={() => void copyAbsolutePath(path)}>
+              Pfad kopieren
             </button>
-          )}
+            {parent && parent !== path && (
+              <button
+                className="underline"
+                onClick={() => void window.electron.openDirectoryInExplorer(parent)}
+              >
+                Ordner öffnen
+              </button>
+            )}
+          </div>
         </div>
       </Centered>
     );
@@ -254,24 +264,35 @@ export const PreviewPanel: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preview?.browserUrl]);
 
+  // Resize beenden — robust: auch wenn das mouseup ausserhalb des Fensters passiert (dann feuert
+  // window.mouseup NIE und der Klick-Overlay bliebe liegen -> nichts mehr klickbar, auch das Fenster-X
+  // nicht). Wird darum zusätzlich bei Fokusverlust und bei losgelassener Maustaste ausgelöst.
+  const endResize = useCallback(() => {
+    if (!resizing.current && !isResizing) return;
+    resizing.current = false;
+    setIsResizing(false);
+  }, [isResizing]);
+
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
       if (!resizing.current) return;
+      // Selbstheilung: Taste nicht mehr gedrückt (verpasstes mouseup) -> Resize beenden.
+      if (e.buttons === 0) {
+        endResize();
+        return;
+      }
       // Panel liegt rechts: nach links ziehen (kleineres clientX) = breiter.
       setWidth(clampWidth(startWidth.current + (startX.current - e.clientX)));
     };
-    const onUp = () => {
-      if (!resizing.current) return;
-      resizing.current = false;
-      setIsResizing(false);
-    };
     window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
+    window.addEventListener('mouseup', endResize);
+    window.addEventListener('blur', endResize);
     return () => {
       window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('mouseup', endResize);
+      window.removeEventListener('blur', endResize);
     };
-  }, []);
+  }, [endResize]);
 
   // Endbreite persistieren, wenn sich width nach dem Ziehen geändert hat.
   useEffect(() => {
@@ -290,8 +311,16 @@ export const PreviewPanel: React.FC = () => {
 
   return (
     <>
-      {/* Faengt Maus-Events waehrend des Ziehens ab, auch ueber dem <webview>/iframe. */}
-      {isResizing && <div className="fixed inset-0 z-[100]" style={{ cursor: 'col-resize' }} />}
+      {/* Faengt Maus-Events waehrend des Ziehens ab, auch ueber dem <webview>/iframe.
+          onMouseUp/onClick beenden zusaetzlich, falls das globale mouseup verpasst wurde. */}
+      {isResizing && (
+        <div
+          className="fixed inset-0 z-[100]"
+          style={{ cursor: 'col-resize' }}
+          onMouseUp={endResize}
+          onClick={endResize}
+        />
+      )}
       <div
         className="h-full flex-shrink-0 border-l border-border-primary flex flex-row bg-background-primary"
         style={{ width }}
