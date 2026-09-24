@@ -13,6 +13,7 @@ import { useWorkingDir } from '../tb/WorkingDirContext';
 import { remarkLocalPaths } from '../tb/remarkLocalPaths';
 import { usePreview } from '../tb/preview/PreviewContext';
 import { previewKindFor } from '../tb/preview/previewKind';
+import { copyAbsolutePath } from '../tb/copyPath';
 // Improved oneDark theme for better comment contrast and readability
 const customOneDarkTheme = {
   ...oneDark,
@@ -318,11 +319,20 @@ const MarkdownContent = memo(function MarkdownContent({
                 {...props}
                 target="_blank"
                 rel="noopener noreferrer"
-                title={localPath ? 'Im Explorer anzeigen' : undefined}
+                title={localPath ? 'Klick: öffnen · Rechtsklick: Pfad kopieren' : undefined}
                 className={
                   localPath
                     ? `${props.className ?? ''} underline decoration-dotted cursor-pointer`.trim()
                     : props.className
+                }
+                onContextMenu={
+                  localPath
+                    ? (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        void copyAbsolutePath(localPath);
+                      }
+                    : undefined
                 }
                 onClick={(e) => {
                   e.preventDefault();

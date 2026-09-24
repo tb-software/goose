@@ -1,7 +1,8 @@
 // TB-Software: Layout- + Render-Zuständigkeit des Vorschau-Panels (SRP).
 // Datenzugriff läuft über window.electron.tbReadFile (kein direkter FS-Zugriff hier).
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { X, FolderOpen, FileWarning, RefreshCw } from 'lucide-react';
+import { X, FolderOpen, FileWarning, RefreshCw, Copy } from 'lucide-react';
+import { copyAbsolutePath } from '../copyPath';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import MarkdownContent from '../../components/MarkdownContent';
@@ -310,7 +311,16 @@ export const PreviewPanel: React.FC = () => {
           </span>
           {path && (
             <button
-              className="p-1.5 rounded hover:bg-background-tertiary text-text-secondary"
+              className="no-drag p-1.5 rounded hover:bg-background-tertiary text-text-secondary"
+              title="Absoluten Pfad kopieren"
+              onClick={() => void copyAbsolutePath(path)}
+            >
+              <Copy className="w-4 h-4" />
+            </button>
+          )}
+          {path && (
+            <button
+              className="no-drag p-1.5 rounded hover:bg-background-tertiary text-text-secondary"
               title="Vorschau neu laden"
               onClick={() => setReloadTick((t) => t + 1)}
             >
@@ -319,7 +329,7 @@ export const PreviewPanel: React.FC = () => {
           )}
           {path && (
             <button
-              className="p-1.5 rounded hover:bg-background-tertiary text-text-secondary"
+              className="no-drag p-1.5 rounded hover:bg-background-tertiary text-text-secondary"
               title="Im Explorer anzeigen"
               onClick={() => void window.electron.showItemInFolder(path)}
             >
@@ -327,7 +337,7 @@ export const PreviewPanel: React.FC = () => {
             </button>
           )}
           <button
-            className="p-1.5 rounded hover:bg-background-tertiary text-text-secondary"
+            className="no-drag p-1.5 rounded hover:bg-background-tertiary text-text-secondary"
             title="Schließen"
             onClick={() => preview.close()}
           >
