@@ -16,9 +16,10 @@
 
 # --- Provider: eingebauter openai-Provider, auf den Proxy umgebogen ----------
 GOOSE_PROVIDER: openai
-GOOSE_MODEL: "auto:code"          # auto:code -> qwen3.8-27b: liefert zuverlaessig native tool_calls ueber den Proxy.
-                                  # auto:chat -> mistral-small-3.2-24b gibt auf den Serving-Nodes KEINE tool_calls zurueck
-                                  # (verifiziert 2026-09-09). Daher ist auto:code der Default fuer Agent/Tool-Arbeit.
+GOOSE_MODEL: "auto:code"          # auto:code -> Qwen: liefert zuverlaessig native tool_calls ueber den Proxy.
+                                  # auto:chat -> jetzt Qwen3.6 (frueher mistral-24b OHNE tool_calls): ebenfalls
+                                  # tool-faehig, native tool_calls verifiziert 2026-09-24. Kein Toolshim mehr noetig.
+                                  # auto:code bleibt Default fuer Agent/Tool-Arbeit (staerkstes Reasoning).
 
 # Endpoint = OPENAI_HOST + "/" + OPENAI_BASE_PATH
 #   -> https://t78.ch/apps/proxy/gericom/jumpserver.ashx/v1/chat/completions

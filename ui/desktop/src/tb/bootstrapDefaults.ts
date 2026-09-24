@@ -30,7 +30,7 @@ const TB_AUTO_MODELS = [
     name: 'auto:chat',
     provider: 'openai',
     alias: 'Auto: Chat',
-    subtext: 'Schneller Chat, ohne Werkzeuge (Mistral)',
+    subtext: 'Schneller Chat mit Werkzeugen (Qwen3.6)',
     context_limit: 131072,
   },
   {
@@ -140,12 +140,65 @@ export function ensureTbDefaults(): void {
       fs.copyFileSync(hintsSrc, hintsDst);
     }
 
+    // Einmalige Korrekturen an bestehenden Configs (Marker: tb-migrations.json).
+    tbMigrateConfig(cfgDir);
+
     // LenaX-DB MCP standardmäßig verbinden. IMMER als Erweiterung eintragen (auch wenn die Exe
     // (noch) nicht gefunden wird) -> sichtbar + konfigurierbar. Gefunden = aktiv/verbunden,
     // nicht gefunden = sichtbar, aber deaktiviert (Pfad in den Einstellungen setzen).
     ensureLenaxDbExtension(cfgDir, { writePlaceholderIfMissing: true });
   } catch (e) {
     log.error('[TB] ensureTbDefaults fehlgeschlagen', e);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Einmalige Config-Migrationen (Marker-Datei tb-migrations.json neben der config.yaml).
+// Korrigieren bekannt-schädliche Altwerte in BESTEHENDEN Configs, ohne bewusste Nutzer-
+// Anpassungen wiederholt zu überschreiben (jede Migration läuft genau einmal).
+// ---------------------------------------------------------------------------
+function tbMigrateConfig(cfgDir: string): void {
+  try {
+    const cfgFile = path.join(cfgDir, 'config.yaml');
+    if (!fs.existsSync(cfgFile)) return;
+    const markerFile = path.join(cfgDir, 'tb-migrations.json');
+    let applied: string[] = [];
+    try {
+      if (fs.existsSync(markerFile)) {
+        const m = JSON.parse(fs.readFileSync(markerFile, 'utf8'));
+        if (Array.isArray(m?.applied)) applied = m.applied;
+      }
+    } catch {
+      /* Marker unlesbar -> als leer behandeln */
+    }
+
+    const raw = fs.readFileSync(cfgFile, 'utf8');
+    const parsed = (yaml.parse(raw) ?? {}) as Record<string, unknown>;
+    const doc = yaml.parseDocument(raw);
+    let changed = false;
+    const markDone = (id: string) => {
+      if (!applied.includes(id)) applied.push(id);
+    };
+
+    // (1) Toolshim entschärfen: auto:chat ist jetzt Qwen3.6 (tool-fähig). Eine gespeicherte
+    //     „Kompatibel"-Einstellung (GOOSE_TOOLSHIM=true) lässt Tool-Aufrufe als Text stehen ->
+    //     einmalig auf Nativ (false) korrigieren.
+    if (!applied.includes('toolshim-off-v1')) {
+      const v = parsed.GOOSE_TOOLSHIM;
+      if (v === true || String(v).toLowerCase() === 'true') {
+        doc.set('GOOSE_TOOLSHIM', false);
+        changed = true;
+        log.info('[TB] Migration: GOOSE_TOOLSHIM true -> false (auto:chat nun tool-fähig)');
+      }
+      markDone('toolshim-off-v1');
+    }
+    // Hinweis: GOOSE_MAX_TOKENS bewusst NICHT anheben — ein grosser Wert (16000) lässt ausgelastete
+    // Serving-Nodes hängen; 4096 ist Absicht, abgeschnittene Turns setzt der finish_reason:length-Fix fort.
+
+    if (changed) fs.writeFileSync(cfgFile, doc.toString());
+    fs.writeFileSync(markerFile, JSON.stringify({ applied }, null, 2));
+  } catch (e) {
+    log.error('[TB] tbMigrateConfig fehlgeschlagen', e);
   }
 }
 

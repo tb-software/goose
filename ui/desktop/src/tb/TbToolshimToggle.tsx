@@ -1,13 +1,11 @@
 // TB-Software: Bottom-Bar-Anzeige + Umschalter für den Werkzeug-Modus (GOOSE_TOOLSHIM).
-// "Kompatibel" (Toolshim AN) = Werkzeug-Aufrufe werden aus TEXT geparst — nötig für
-// Modelle OHNE native Werkzeuge (z. B. auto:chat). "Nativ" (Toolshim AUS) = native
-// tool_calls, zuverlässiger, für tool-fähige Modelle (z. B. auto:code).
+// "Nativ" (Toolshim AUS) = native tool_calls, zuverlässig, für ALLE gericom-Modelle (auto:code UND
+// auto:chat=Qwen3.6). "Kompatibel" (Toolshim AN) = Aufrufe werden aus TEXT geparst; braucht einen
+// lokalen Ollama-Interpreter, der am Anwender-PC fehlt -> Aufrufe blieben sonst als Text stehen.
 //
-// Milestone [11]/Guard: Der Umschalter ist jetzt MODELL-BEWUSST. Die Kombination
-// auto:code + Kompatibel ist bekannt kaputt (Tool-Aufrufe bleiben als roher Text stehen,
-// weil der Toolshim einen lokalen Ollama-Interpreter bräuchte, der am Anwender-PC fehlt).
-// Deshalb: (1) beim Modellwechsel wird der passende Modus automatisch gesetzt, (2) eine
-// falsche Kombi wird rot gewarnt und per Klick sofort korrigiert.
+// STAND 2026-09-24: Kein Modell braucht mehr "Kompatibel" (auto:chat ist nun tool-fähig). Der Umschalter
+// erzwingt darum nur noch "Nativ": (1) beim Modellwechsel/Start wird eine gespeicherte "Kompatibel"-
+// Einstellung automatisch auf Nativ geheilt, (2) manuell aktiviertes "Kompatibel" wird rot gewarnt.
 import React, { useEffect, useRef } from 'react';
 import { Wrench, AlertTriangle } from 'lucide-react';
 import { useConfig } from '../components/ConfigContext';
@@ -56,8 +54,8 @@ export const TbToolshimToggle: React.FC<{ model?: string | null }> = ({ model })
       ? `⚠ ${model} braucht „Kompatibel" — im Modus „Nativ" führt es keine Werkzeuge aus. Klick zum Beheben.`
       : `⚠ ${model} braucht „Nativ" — im Modus „Kompatibel" bleiben Werkzeug-Aufrufe als Text stehen (kein lokaler Ollama-Interpreter). Klick zum Beheben.`
     : enabled
-      ? 'Werkzeug-Modus: KOMPATIBEL — Werkzeuge laufen über Text-Parsing, für Modelle ohne native Werkzeuge (z. B. auto:chat). Klick für Nativ.'
-      : 'Werkzeug-Modus: NATIV — schnelle native Werkzeug-Aufrufe (z. B. auto:code). Klick für Kompatibel.';
+      ? 'Werkzeug-Modus: KOMPATIBEL — Werkzeuge laufen über lokales Text-Parsing (braucht lokalen Ollama-Interpreter). Für die gericom-Modelle NICHT nötig. Klick für Nativ.'
+      : 'Werkzeug-Modus: NATIV — schnelle native Werkzeug-Aufrufe (auto:code UND auto:chat). Empfohlen. Klick für Kompatibel.';
 
   return (
     <button
