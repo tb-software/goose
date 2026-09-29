@@ -120,6 +120,11 @@ export function ensureTbDefaults(): void {
     const cfgDir = path.join(appData, 'Block', 'goose', 'config');
     fs.mkdirSync(cfgDir, { recursive: true });
 
+    // Rotierendes Backup der sessions.db VOR dem Start des goose-Backends. Zu diesem Zeitpunkt ist
+    // die DB noch nicht geoeffnet -> ein Datei-Copy ist konsistent. Schuetzt vor Korruption (z. B.
+    // durch unsauberen Shutdown/Absturz), die sonst „database disk image is malformed" verursacht.
+    backupSessionsDb(path.join(appData, 'Block', 'goose', 'data', 'sessions'));
+
     const base = tbDefaultsDir();
 
     // Config nur seeden, wenn noch keine vorhanden ist (Einstellungen des Nutzers
@@ -147,8 +152,138 @@ export function ensureTbDefaults(): void {
     // (noch) nicht gefunden wird) -> sichtbar + konfigurierbar. Gefunden = aktiv/verbunden,
     // nicht gefunden = sichtbar, aber deaktiviert (Pfad in den Einstellungen setzen).
     ensureLenaxDbExtension(cfgDir, { writePlaceholderIfMissing: true });
+
+    // LenaX-Flow MCP (n8n-Automationen als Werkzeuge) genauso seeden wie LenaX-DB, damit der
+    // Desktop die Erweiterung kennt, als „LenaX-Flow" anzeigt und laedt. Ein nur von Hand in die
+    // config.yaml geschriebener stdio-Eintrag wird vom Desktop NICHT uebernommen.
+    ensureLenaxFlowExtension(cfgDir);
   } catch (e) {
     log.error('[TB] ensureTbDefaults fehlgeschlagen', e);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Rotierendes sessions.db-Backup (letzte 5). Aufruf beim App-Start, BEVOR goose die DB oeffnet
+// (dann ist ein Datei-Copy konsistent). Sichert main-DB + WAL + SHM als Set unter _backups/.
+// ---------------------------------------------------------------------------
+const SESSIONS_BACKUP_KEEP = 5;
+
+function backupSessionsDb(sessionsDir: string): void {
+  try {
+    const db = path.join(sessionsDir, 'sessions.db');
+    if (!fs.existsSync(db)) return; // Erstinstallation: goose legt die DB erst an.
+    if (fs.statSync(db).size < 1024) return; // leere/halbe DB nicht sichern.
+
+    const bkDir = path.join(sessionsDir, '_backups');
+    fs.mkdirSync(bkDir, { recursive: true });
+
+    const ts = new Date()
+      .toISOString()
+      .replace(/[:T]/g, '')
+      .replace(/\..+/, '')
+      .replace(/-/g, '');
+    for (const suffix of ['', '-wal', '-shm']) {
+      const src = db + suffix;
+      if (fs.existsSync(src)) {
+        fs.copyFileSync(src, path.join(bkDir, `sessions_${ts}.db${suffix}`));
+      }
+    }
+
+    // Rotation: nur die neuesten SESSIONS_BACKUP_KEEP Sets behalten (nach Basis-Datei sortiert).
+    const bases = fs
+      .readdirSync(bkDir)
+      .filter((f) => /^sessions_\d+\.db$/.test(f))
+      .map((f) => ({ f, t: fs.statSync(path.join(bkDir, f)).mtimeMs }))
+      .sort((a, b) => b.t - a.t);
+    for (const stale of bases.slice(SESSIONS_BACKUP_KEEP)) {
+      const stamp = stale.f.replace(/\.db$/, '');
+      for (const suffix of ['.db', '.db-wal', '.db-shm']) {
+        try {
+          fs.rmSync(path.join(bkDir, stamp + suffix), { force: true });
+        } catch {
+          // egal, naechster
+        }
+      }
+    }
+    log.info(`[TB] sessions.db gesichert (_backups/sessions_${ts}.db), behalte ${SESSIONS_BACKUP_KEEP}`);
+  } catch (e) {
+    log.error('[TB] sessions.db-Backup fehlgeschlagen', e);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// LenaX-Flow: Bruecke zu den n8n-Automationen (flow_list/flow_run/flow_ping).
+// Wie LenaX-DB als stdio-Extension seeden. Fester Installationsort (self-contained Exe), daher
+// nur ein paar Kandidatenpfade statt Discovery. Idempotent: legt den Eintrag an, wenn er fehlt,
+// oder repariert cmd/name, wenn er unter dem kanonischen Key existiert.
+// ---------------------------------------------------------------------------
+const LENAX_FLOW_KEY = 'lenax-flow'; // = nameToKey('LenaX-Flow')
+
+function discoverLenaxFlowMcp(): string | null {
+  const localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
+  const programFiles = process.env.ProgramFiles || 'C:\\Program Files';
+  const candidates = [
+    process.env.LENAX_FLOW_MCP_EXE || '',
+    'D:\\_AI\\Applications\\LenaX-Flow\\lenax-flow-mcp.exe',
+    'C:\\_AI\\Applications\\LenaX-Flow\\lenax-flow-mcp.exe',
+    path.join(localAppData, 'Programs', 'LenaX-Flow', 'lenax-flow-mcp.exe'),
+    path.join(programFiles, 'LenaX-Flow', 'lenax-flow-mcp.exe'),
+  ].filter(Boolean);
+  for (const p of candidates) {
+    try {
+      if (fs.existsSync(p)) return p;
+    } catch {
+      // ignorieren, naechsten Kandidaten pruefen
+    }
+  }
+  return null;
+}
+
+export function ensureLenaxFlowExtension(cfgDir: string): void {
+  try {
+    const cfgFile = path.join(cfgDir, 'config.yaml');
+    if (!fs.existsSync(cfgFile)) return;
+
+    const raw = fs.readFileSync(cfgFile, 'utf8');
+    const parsed = (yaml.parse(raw) ?? {}) as { extensions?: Record<string, { cmd?: string }> };
+    const exe = discoverLenaxFlowMcp();
+    const existing = parsed.extensions?.[LENAX_FLOW_KEY];
+
+    if (existing) {
+      // Vorhanden -> nur cmd korrigieren, falls die Exe woanders liegt (idempotent, keine
+      // Nutzer-Einstellungen wie enabled/timeout ueberschreiben).
+      const cmd = String(existing.cmd ?? '').trim();
+      if (exe && (!cmd || !fs.existsSync(cmd)) && cmd !== exe) {
+        const doc = yaml.parseDocument(raw);
+        doc.setIn(['extensions', LENAX_FLOW_KEY, 'cmd'], exe);
+        fs.writeFileSync(cfgFile, doc.toString());
+        log.info(`[TB] LenaX-Flow MCP-Pfad repariert -> ${exe}`);
+      }
+      return;
+    }
+
+    if (!exe) {
+      log.info('[TB] LenaX-Flow MCP nicht gefunden — in den Einstellungen manuell konfigurierbar.');
+      return;
+    }
+
+    const doc = yaml.parseDocument(raw);
+    doc.setIn(['extensions', LENAX_FLOW_KEY], {
+      enabled: true,
+      type: 'stdio',
+      name: 'LenaX-Flow',
+      description:
+        'LenaX-Flow — n8n-Automationen als Werkzeuge (flow_list, flow_run, flow_ping). Bruecke zu den n8n-Workflows.',
+      cmd: exe,
+      args: [],
+      timeout: 120,
+      env_keys: [],
+      bundled: false,
+    });
+    fs.writeFileSync(cfgFile, doc.toString());
+    log.info(`[TB] LenaX-Flow MCP eingetragen: ${exe}`);
+  } catch (e) {
+    log.error('[TB] LenaX-Flow-Extension-Seeding fehlgeschlagen', e);
   }
 }
 

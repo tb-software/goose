@@ -86,10 +86,15 @@ function createAcpCreditsExhaustedMessage(error: AcpCreditsExhaustedError): Mess
   };
 }
 
-function assertNoPendingPromptCancellation(sessionId: string): void {
-  const snapshot = acpChatSessionStore.getSnapshot(sessionId);
-  if (snapshot?.pendingCancelPromptAttemptId) {
-    throw new Error('Cannot submit while prompt cancellation is pending');
+// TB-Software: Ein laufender Abbruch (STOP) darf das Absenden/Bearbeiten NICHT mit einem Fehler
+// quittieren („Cannot submit while prompt cancellation is pending"). Stattdessen warten wir, bis der
+// Abbruch durch ist (Backend-Bestätigung ODER der 20s-Watchdog aus stop()), und fahren dann fort.
+// Der Nutzer kann in der Zwischenzeit beliebig weiter editieren; sobald die abgebrochene Nachricht
+// verworfen quittiert ist, geht der nächste Befehl automatisch raus.
+async function awaitPendingPromptCancellation(sessionId: string): Promise<void> {
+  const pendingId = acpChatSessionStore.getSnapshot(sessionId)?.pendingCancelPromptAttemptId;
+  if (pendingId) {
+    await acpChatSessionActions.waitForPromptCancellation(sessionId, pendingId);
   }
 }
 
@@ -174,7 +179,7 @@ async function submitMessage(
   userMessage: Message,
   options: AcpSubmitMessageOptions
 ): Promise<void> {
-  assertNoPendingPromptCancellation(sessionId);
+  await awaitPendingPromptCancellation(sessionId);
 
   const snapshot = acpChatSessionStore.getSnapshot(sessionId);
   if (snapshot?.activePromptAttemptId) {
@@ -261,7 +266,7 @@ async function updateMessage(
   retainedImages: ImageData[],
   options: AcpSubmitMessageOptions
 ): Promise<void> {
-  assertNoPendingPromptCancellation(sessionId);
+  await awaitPendingPromptCancellation(sessionId);
 
   const currentSnapshot = options.getCurrentSnapshot();
   const storedSnapshot = acpChatSessionStore.getSnapshot(sessionId);

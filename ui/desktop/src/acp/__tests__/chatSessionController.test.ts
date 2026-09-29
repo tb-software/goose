@@ -250,21 +250,24 @@ describe('acpChatSessionController.submitMessage', () => {
     expect(onFinish).not.toHaveBeenCalled();
   });
 
-  it('rejects while a cancellation barrier is pending', async () => {
+  it('waits for a pending cancellation, then submits (no error)', async () => {
+    vi.mocked(acpChatSessionActions.waitForPromptCancellation).mockResolvedValue(undefined);
     vi.mocked(acpChatSessionStore.getSnapshot).mockReturnValue({
       ...snapshotWithActivePrompt(null),
       pendingCancelPromptAttemptId: 'attempt-1',
     });
 
-    await expect(
-      acpChatSessionController.submitMessage(SESSION_ID, userMessage(), {
-        getCurrentSnapshot: () => snapshotWithActivePrompt(null),
-        onFinish: vi.fn(),
-      })
-    ).rejects.toThrow('Cannot submit while prompt cancellation is pending');
+    await acpChatSessionController.submitMessage(SESSION_ID, userMessage(), {
+      getCurrentSnapshot: () => snapshotWithActivePrompt(null),
+      onFinish: vi.fn(),
+    });
 
-    expect(acpChatSessionActions.startPromptAttempt).not.toHaveBeenCalled();
-    expect(acpPromptSession).not.toHaveBeenCalled();
+    expect(acpChatSessionActions.waitForPromptCancellation).toHaveBeenCalledWith(
+      SESSION_ID,
+      'attempt-1'
+    );
+    expect(acpChatSessionActions.startPromptAttempt).toHaveBeenCalled();
+    expect(acpPromptSession).toHaveBeenCalled();
   });
 
 });
@@ -278,7 +281,8 @@ describe('acpChatSessionController.updateMessage', () => {
     vi.mocked(acpChatSessionActions.waitForPromptCancellation).mockResolvedValue(undefined);
   });
 
-  it('rejects edits before truncating while cancellation is pending', async () => {
+  it('waits for a pending cancellation before editing (no error)', async () => {
+    vi.mocked(acpChatSessionActions.waitForPromptCancellation).mockResolvedValue(undefined);
     vi.mocked(acpChatSessionStore.getSnapshot).mockReturnValue({
       ...snapshotWithActivePrompt(null),
       pendingCancelPromptAttemptId: 'attempt-1',
@@ -289,27 +293,15 @@ describe('acpChatSessionController.updateMessage', () => {
       messages: [existingMessage],
     };
 
-    await expect(
-      acpChatSessionController.updateMessage(
-        SESSION_ID,
-        existingMessage.id,
-        'Updated',
-        'edit',
-        [],
-        {
-          getCurrentSnapshot: () => currentSnapshot,
-          onFinish: vi.fn(),
-        }
-      )
-    ).rejects.toThrow('Cannot submit while prompt cancellation is pending');
+    await acpChatSessionController.updateMessage(SESSION_ID, existingMessage.id, 'Updated', 'edit', [], {
+      getCurrentSnapshot: () => currentSnapshot,
+      onFinish: vi.fn(),
+    });
 
-    expect(acpChatSessionActions.setChatState).not.toHaveBeenCalledWith(
+    expect(acpChatSessionActions.waitForPromptCancellation).toHaveBeenCalledWith(
       SESSION_ID,
-      ChatState.Thinking
+      'attempt-1'
     );
-    expect(acpTruncateSessionConversation).not.toHaveBeenCalled();
-    expect(acpChatSessionActions.setMessages).not.toHaveBeenCalled();
-    expect(acpPromptSession).not.toHaveBeenCalled();
   });
 
   it('ignores edits before truncating while a prompt is active', async () => {
