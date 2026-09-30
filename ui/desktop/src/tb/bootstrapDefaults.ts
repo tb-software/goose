@@ -153,10 +153,11 @@ export function ensureTbDefaults(): void {
     // nicht gefunden = sichtbar, aber deaktiviert (Pfad in den Einstellungen setzen).
     ensureLenaxDbExtension(cfgDir, { writePlaceholderIfMissing: true });
 
-    // LenaX-Flow MCP (n8n-Automationen als Werkzeuge) genauso seeden wie LenaX-DB, damit der
-    // Desktop die Erweiterung kennt, als „LenaX-Flow" anzeigt und laedt. Ein nur von Hand in die
-    // config.yaml geschriebener stdio-Eintrag wird vom Desktop NICHT uebernommen.
-    ensureLenaxFlowExtension(cfgDir);
+    // Uebrige verwaltete MCPs (Computer-Use, Browser, Flow, IP-Forward) nach dem Seed-Vertrag
+    // seeden (idempotent, zerstoerungsfrei, No-op ohne Exe). LenaX-DB bleibt oben wegen seiner
+    // Sonderbehandlung (Config-Argument/Discovery). Vertrag:
+    // _austausch/tb-goose-agent/03_TB-Goose-MCP-Seed-Vertrag.md
+    for (const spec of MANAGED_MCPS) seedManagedMcp(cfgDir, spec);
   } catch (e) {
     log.error('[TB] ensureTbDefaults fehlgeschlagen', e);
   }
@@ -212,78 +213,141 @@ function backupSessionsDb(sessionsDir: string): void {
 }
 
 // ---------------------------------------------------------------------------
-// LenaX-Flow: Bruecke zu den n8n-Automationen (flow_list/flow_run/flow_ping).
-// Wie LenaX-DB als stdio-Extension seeden. Fester Installationsort (self-contained Exe), daher
-// nur ein paar Kandidatenpfade statt Discovery. Idempotent: legt den Eintrag an, wenn er fehlt,
-// oder repariert cmd/name, wenn er unter dem kanonischen Key existiert.
+// Verwaltete stdio-MCPs nach dem Seed-Vertrag
+// (_austausch/tb-goose-agent/03_TB-Goose-MCP-Seed-Vertrag.md). Alle unter D:\_AI\Applications\<Modul>\
+// (generische Ordner, keine Version im Pfad). Idempotent + zerstoerungsfrei. LenaX-DB ist NICHT hier,
+// weil es Sonderbehandlung (Config-Argument/Discovery) hat -> ensureLenaxDbExtension.
 // ---------------------------------------------------------------------------
-const LENAX_FLOW_KEY = 'lenax-flow'; // = nameToKey('LenaX-Flow')
+interface ManagedMcp {
+  key: string; // = nameToKey(name)
+  name: string;
+  description: string;
+  exeName: string; // Basename der erwarteten Exe -> erkennt "verwaltet" vs. Nutzer-Eintrag
+  exeCandidates: string[]; // erster existierender gewinnt (D: bevorzugt, C: als Alt-Pfad)
+  envs?: Record<string, string>;
+}
 
-function discoverLenaxFlowMcp(): string | null {
-  const localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
-  const programFiles = process.env.ProgramFiles || 'C:\\Program Files';
-  const candidates = [
-    process.env.LENAX_FLOW_MCP_EXE || '',
-    'D:\\_AI\\Applications\\LenaX-Flow\\lenax-flow-mcp.exe',
-    'C:\\_AI\\Applications\\LenaX-Flow\\lenax-flow-mcp.exe',
-    path.join(localAppData, 'Programs', 'LenaX-Flow', 'lenax-flow-mcp.exe'),
-    path.join(programFiles, 'LenaX-Flow', 'lenax-flow-mcp.exe'),
-  ].filter(Boolean);
-  for (const p of candidates) {
+const MANAGED_MCPS: ManagedMcp[] = [
+  {
+    key: 'lenax-computeruse',
+    name: 'LenaX-ComputerUse',
+    description:
+      'LenaX Computer-Use - sieht den PC (Screenshot), steuert Maus/Tastatur, shell_exec, Prozesse. Kopfloser TBRD-Viewer (target=auto = eigener PC).',
+    exeName: 'Tbrd.ComputerUse.Mcp.exe',
+    exeCandidates: [
+      'D:\\_AI\\Applications\\LenaX-ComputerUse\\Tbrd.ComputerUse.Mcp.exe',
+      'C:\\_AI\\Applications\\LenaX-ComputerUse\\Tbrd.ComputerUse.Mcp.exe',
+    ],
+  },
+  {
+    key: 'lenax-browser',
+    name: 'LenaX-Browser',
+    description:
+      'LenaX Browser Bridge - steuert das laufende Chrome (Tabs, navigieren, klicken, tippen, lesen, Screenshots). Braucht die Chrome-Extension (CBCM) + einmalige Aktivierung.',
+    exeName: 'lenax-browser-mcp.exe',
+    exeCandidates: [
+      'D:\\_AI\\Applications\\LenaX-Browser\\lenax-browser-mcp.exe',
+      'C:\\_AI\\Applications\\LenaX-Browser\\lenax-browser-mcp.exe',
+    ],
+    envs: {
+      LENAX_BROWSER_AUTO_PAIR: '1',
+      LENAX_BROWSER_EXT_ID: 'bedngflaokoihocadhlkalmofnglmjof',
+    },
+  },
+  {
+    key: 'lenax-flow',
+    name: 'LenaX-Flow',
+    description:
+      'LenaX-Flow - n8n-Automationen als Werkzeuge (flow_list, flow_run, flow_ping). Bruecke zu den n8n-Workflows.',
+    exeName: 'lenax-flow-mcp.exe',
+    exeCandidates: [
+      'D:\\_AI\\Applications\\LenaX-Flow\\lenax-flow-mcp.exe',
+      'C:\\_AI\\Applications\\LenaX-Flow\\lenax-flow-mcp.exe',
+    ],
+  },
+  {
+    key: 'lenax-ipforward',
+    name: 'LenaX-IPForward',
+    description:
+      'LenaX IP-Forward - fuehrt Web-Requests transparent ueber einen Fleet-Client aus (ipforward-Tunnel).',
+    exeName: 'lenax-ipforward-mcp.exe',
+    exeCandidates: [
+      'D:\\_AI\\Applications\\LenaX-IPForward\\lenax-ipforward-mcp.exe',
+      'C:\\_AI\\Applications\\LenaX-IPForward\\lenax-ipforward-mcp.exe',
+    ],
+  },
+];
+
+function firstExisting(paths: string[]): string | null {
+  for (const p of paths) {
     try {
-      if (fs.existsSync(p)) return p;
+      if (p && fs.existsSync(p)) return p;
     } catch {
-      // ignorieren, naechsten Kandidaten pruefen
+      // naechster Kandidat
     }
   }
   return null;
 }
 
-export function ensureLenaxFlowExtension(cfgDir: string): void {
+// Seed-Vertrag-Regeln: (1) idempotent  (2) zerstoerungsfrei: fremder Eintrag (cmd zeigt NICHT auf die
+// erwartete Exe) bleibt unangetastet  (3) Pfad nachziehen bei verwaltetem Eintrag (z. B. C:\ -> D:\)
+// (4) No-op ohne Exe: fehlt die Ziel-Exe, keinen toten MCP schreiben  (5) verwaltete Eintraege auf
+// enabled:true.
+function seedManagedMcp(cfgDir: string, spec: ManagedMcp): void {
   try {
     const cfgFile = path.join(cfgDir, 'config.yaml');
     if (!fs.existsSync(cfgFile)) return;
 
     const raw = fs.readFileSync(cfgFile, 'utf8');
-    const parsed = (yaml.parse(raw) ?? {}) as { extensions?: Record<string, { cmd?: string }> };
-    const exe = discoverLenaxFlowMcp();
-    const existing = parsed.extensions?.[LENAX_FLOW_KEY];
+    const parsed = (yaml.parse(raw) ?? {}) as {
+      extensions?: Record<string, { cmd?: string; enabled?: boolean }>;
+    };
+    const exe = firstExisting(spec.exeCandidates);
+    const existing = parsed.extensions?.[spec.key];
 
     if (existing) {
-      // Vorhanden -> nur cmd korrigieren, falls die Exe woanders liegt (idempotent, keine
-      // Nutzer-Einstellungen wie enabled/timeout ueberschreiben).
-      const cmd = String(existing.cmd ?? '').trim();
-      if (exe && (!cmd || !fs.existsSync(cmd)) && cmd !== exe) {
-        const doc = yaml.parseDocument(raw);
-        doc.setIn(['extensions', LENAX_FLOW_KEY, 'cmd'], exe);
-        fs.writeFileSync(cfgFile, doc.toString());
-        log.info(`[TB] LenaX-Flow MCP-Pfad repariert -> ${exe}`);
-      }
+      // Regel 2: nur EIGENE Eintraege anfassen (cmd-Basename == erwartete Exe), sonst unangetastet.
+      const ownEntry =
+        path.basename(String(existing.cmd ?? '').trim()).toLowerCase() === spec.exeName.toLowerCase();
+      if (!ownEntry) return;
+      if (!exe) return; // Exe (nicht mehr) da -> nichts erzwingen.
+
+      const needsPathFix = String(existing.cmd ?? '').trim() !== exe; // Regel 3
+      const needsEnable = existing.enabled !== true; // Regel 5
+      if (!needsPathFix && !needsEnable) return; // Regel 1: nichts zu tun.
+
+      const doc = yaml.parseDocument(raw);
+      if (needsPathFix) doc.setIn(['extensions', spec.key, 'cmd'], exe);
+      if (needsEnable) doc.setIn(['extensions', spec.key, 'enabled'], true);
+      fs.writeFileSync(cfgFile, doc.toString());
+      log.info(`[TB] ${spec.name}: aktualisiert (pathFix=${needsPathFix}, enable=${needsEnable}).`);
       return;
     }
 
     if (!exe) {
-      log.info('[TB] LenaX-Flow MCP nicht gefunden — in den Einstellungen manuell konfigurierbar.');
+      // Regel 4: Modul (noch) nicht installiert -> keinen toten MCP schreiben.
+      log.info(`[TB] ${spec.name}: Exe nicht gefunden -> nicht geseedet (kommt, sobald installiert).`);
       return;
     }
 
     const doc = yaml.parseDocument(raw);
-    doc.setIn(['extensions', LENAX_FLOW_KEY], {
+    const entry: Record<string, unknown> = {
       enabled: true,
       type: 'stdio',
-      name: 'LenaX-Flow',
-      description:
-        'LenaX-Flow — n8n-Automationen als Werkzeuge (flow_list, flow_run, flow_ping). Bruecke zu den n8n-Workflows.',
+      name: spec.name,
+      description: spec.description,
       cmd: exe,
       args: [],
-      timeout: 120,
+      timeout: 300,
       env_keys: [],
       bundled: false,
-    });
+    };
+    if (spec.envs) entry.envs = spec.envs;
+    doc.setIn(['extensions', spec.key], entry);
     fs.writeFileSync(cfgFile, doc.toString());
-    log.info(`[TB] LenaX-Flow MCP eingetragen: ${exe}`);
+    log.info(`[TB] ${spec.name}: MCP eingetragen -> ${exe}`);
   } catch (e) {
-    log.error('[TB] LenaX-Flow-Extension-Seeding fehlgeschlagen', e);
+    log.error(`[TB] Seeding fehlgeschlagen fuer ${spec.key}`, e);
   }
 }
 
