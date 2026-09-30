@@ -1410,6 +1410,20 @@ export default function ChatInput({
     setQueuedMessages((prev) => prev.filter((msg) => msg.id !== messageId));
   };
 
+  // TB-Software: eine eingereihte Nachricht zum Weiterbearbeiten zurueck ins Eingabefeld holen
+  // (statt sie zu verlieren). Vorhandener Text bleibt erhalten (angehaengt). Bewusst getrennt vom
+  // Loeschen (Papierkorb): das Bearbeiten-Icon holt zurueck, der Papierkorb loescht endgueltig.
+  const handlePullQueuedToInput = (messageId: string) => {
+    if (sendNowInFlightMessageIdsRef.current.has(messageId)) return;
+    const msg = queuedMessages.find((m) => m.id === messageId);
+    if (!msg) return;
+    clearPendingSendAfterStop(messageId);
+    setQueuedMessages((prev) => prev.filter((m) => m.id !== messageId));
+    const current = displayValue.trim();
+    applyInputValue(current ? `${current}\n${msg.content}` : msg.content);
+    setTimeout(() => textAreaRef.current?.focus(), 0);
+  };
+
   const handleClearQueue = () => {
     if (sendNowInFlightMessageIdsRef.current.size > 0) return;
     setQueuedMessages([]);
@@ -1550,6 +1564,7 @@ export default function ChatInput({
           onStopAndSend={handleStopAndSend}
           onReorderMessages={handleReorderMessages}
           onEditMessage={handleEditMessage}
+          onPullToInput={handlePullQueuedToInput}
           onTriggerQueueProcessing={handleResumeQueue}
           editingMessageIdRef={editingMessageIdRef}
           sendingMessageIds={sendNowInFlightMessageIds}

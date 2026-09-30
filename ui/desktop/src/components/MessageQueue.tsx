@@ -1,5 +1,15 @@
 import React, { useRef, useState } from 'react';
-import { X, Clock, Send, GripVertical, Zap, Sparkles, ChevronDown, ChevronUp } from 'lucide-react';
+import {
+  Clock,
+  Send,
+  GripVertical,
+  Zap,
+  Sparkles,
+  ChevronDown,
+  ChevronUp,
+  Pencil,
+  Trash2,
+} from 'lucide-react';
 import { Button } from './ui/button';
 import { ImageData } from '../types/message';
 import { defineMessages, useIntl } from '../i18n';
@@ -79,7 +89,11 @@ const i18n = defineMessages({
   },
   removeFromQueue: {
     id: 'messageQueue.removeFromQueue',
-    defaultMessage: 'Remove this message from queue',
+    defaultMessage: 'Aus der Warteschlange loeschen',
+  },
+  pullToInput: {
+    id: 'messageQueue.pullToInput',
+    defaultMessage: 'Zum Bearbeiten zurueck ins Eingabefeld holen',
   },
   dragToReorder: {
     id: 'messageQueue.dragToReorder',
@@ -100,6 +114,7 @@ interface MessageQueueProps {
   onClearQueue: () => void;
   onStopAndSend?: (messageId: string) => void;
   onEditMessage?: (messageId: string, newContent: string) => void;
+  onPullToInput?: (messageId: string) => void;
   onTriggerQueueProcessing?: () => void;
   editingMessageIdRef?: React.MutableRefObject<string | null>;
   onReorderMessages?: (reorderedMessages: QueuedMessage[]) => void;
@@ -114,6 +129,7 @@ export const MessageQueue: React.FC<MessageQueueProps> = ({
   onClearQueue,
   onStopAndSend,
   onEditMessage,
+  onPullToInput,
   onTriggerQueueProcessing,
   editingMessageIdRef,
   onReorderMessages,
@@ -510,7 +526,21 @@ export const MessageQueue: React.FC<MessageQueueProps> = ({
                     </Button>
                   )}
 
-                  {/* Remove button */}
+                  {/* Pull back to input (edit) - holt den Text zurueck ins Eingabefeld statt ihn zu verlieren */}
+                  {onPullToInput && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={isSending || isEditing}
+                      onClick={() => onPullToInput(message.id)}
+                      className="opacity-60 hover:opacity-100 transition-opacity h-6 w-6 p-0 hover:bg-muted/50 rounded-full"
+                      title={intl.formatMessage(i18n.pullToInput)}
+                    >
+                      <Pencil className="w-3 h-3" />
+                    </Button>
+                  )}
+
+                  {/* Delete button - loescht die Nachricht endgueltig aus der Warteschlange */}
                   <Button
                     variant="ghost"
                     size="sm"
@@ -519,7 +549,7 @@ export const MessageQueue: React.FC<MessageQueueProps> = ({
                     className="opacity-60 hover:opacity-100 transition-opacity h-6 w-6 p-0 hover:bg-destructive/20 hover:text-destructive rounded-full"
                     title={intl.formatMessage(i18n.removeFromQueue)}
                   >
-                    <X className="w-3 h-3" />
+                    <Trash2 className="w-3 h-3" />
                   </Button>
                 </div>
               </div>
