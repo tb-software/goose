@@ -1,5 +1,14 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { copyText } from './copyPath';
+
+function showInExplorer(p: string) {
+  try {
+    const el = (window as unknown as { electron?: { showItemInFolder?: (x: string) => void } }).electron;
+    el?.showItemInFolder?.(p);
+  } catch {
+    /* Electron-API nicht verfuegbar */
+  }
+}
 
 // TB-Software: durchgaengiges Rechtsklick-Kontextmenue im Chat. Egal ob Tool-Call-Kopf
 // ("Read Image source: D:\..."), Tabellenzelle mit Pfad, oder beliebiger Textblock - der Nutzer
@@ -28,6 +37,7 @@ interface MenuState {
 
 export const ChatCopyContextMenu: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [menu, setMenu] = useState<MenuState | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const onContextMenu = useCallback((e: React.MouseEvent) => {
     // Hat eine innere Komponente den Rechtsklick schon behandelt (z. B. Pfad-Link in MarkdownContent)?
@@ -79,7 +89,7 @@ export const ChatCopyContextMenu: React.FC<{ children: React.ReactNode }> = ({ c
 
   return (
     <>
-      <div onContextMenu={onContextMenu} style={{ display: 'contents' }}>
+      <div ref={containerRef} onContextMenu={onContextMenu} style={{ display: 'contents' }}>
         {children}
       </div>
       {menu && (
@@ -92,9 +102,36 @@ export const ChatCopyContextMenu: React.FC<{ children: React.ReactNode }> = ({ c
           onContextMenu={(e) => e.preventDefault()}
         >
           {menu.path && item('Pfad kopieren', menu.path, 'Pfad kopiert')}
+          {menu.path && (
+            <button
+              type="button"
+              className="w-full text-left px-3 py-1.5 hover:bg-muted/50 text-text-primary cursor-pointer"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                showInExplorer(menu.path as string);
+                setMenu(null);
+              }}
+            >
+              Im Explorer zeigen
+            </button>
+          )}
           {menu.selection && item('Auswahl kopieren', menu.selection, 'Auswahl kopiert')}
           {menu.blockText && menu.blockText !== menu.selection &&
             item('Inhalt kopieren', menu.blockText, 'Inhalt kopiert')}
+          <div className="my-1 border-t border-border-primary" />
+          <button
+            type="button"
+            className="w-full text-left px-3 py-1.5 hover:bg-muted/50 text-text-primary cursor-pointer"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              void copyText(containerRef.current?.innerText ?? '', 'Ganzer Chat kopiert');
+              setMenu(null);
+            }}
+          >
+            Ganzen Chat kopieren
+          </button>
         </div>
       )}
     </>

@@ -331,7 +331,7 @@ export const PreviewPanel: React.FC = () => {
         title="Breite ziehen"
       />
       <div className="flex-1 min-w-0 flex flex-col">
-        <div className="h-[48px] flex items-center gap-2 px-3 border-b border-border-primary no-drag">
+        <div className="relative z-[60] h-[48px] flex items-center gap-2 px-3 border-b border-border-primary no-drag">
           <span
             className="flex-1 truncate text-sm font-medium text-text-primary"
             title={path ?? title}
