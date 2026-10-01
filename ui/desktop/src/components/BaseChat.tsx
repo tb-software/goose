@@ -5,6 +5,7 @@ import { useLocation, useNavigate } from 'react-router';
 import { SearchView } from './conversation/SearchView';
 import LoadingGoose from './LoadingGoose';
 import { useTurnStatus } from '../tb/status/useTurnStatus';
+import { ChatCopyContextMenu } from '../tb/ChatCopyContextMenu';
 import ProgressiveMessageList from './ProgressiveMessageList';
 import { MainPanelLayout } from './Layout/MainPanelLayout';
 import ChatInput from './ChatInput';
@@ -474,6 +475,7 @@ export default function BaseChat({
             {messages.length > 0 || recipe ? (
               <>
                 <SearchView>
+                  <ChatCopyContextMenu>
                   <ProgressiveMessageList
                     messages={messages}
                     sessionId={sessionId}
@@ -485,6 +487,7 @@ export default function BaseChat({
                     onMessageUpdate={onMessageUpdate}
                     submitElicitationResponse={submitElicitationResponse}
                   />
+                  </ChatCopyContextMenu>
                 </SearchView>
 
                 <div className="block h-8" />
