@@ -21,8 +21,13 @@ import LoadingGoose from './LoadingGoose';
 import { getModelDisplayName } from './settings/models/predefinedModelsUtils';
 import { deriveMessageRowContexts, type MessageRowContext } from './messageRowContext';
 import { identifyConsecutiveToolCalls } from '../utils/toolCallChaining';
-import { getToolRequests } from '../types/message';
+import { getToolRequests, getToolResponses } from '../types/message';
 import ActivityTree from './ActivityTree';
+import {
+  collectProgressBoxes,
+  type TbProgressBox as TbProgressBoxData,
+} from '../tb/progress/collectProgressBoxes';
+import TbProgressBox from '../tb/progress/TbProgressBox';
 
 // TB-Software: Titel für eine Aktivitäts-Gruppe billig aus den Werkzeugnamen ableiten
 // (kein LLM-Call). Bsp: "shell×8, text_editor×2".
@@ -315,18 +320,45 @@ export default function ProgressiveMessageList({
       );
   };
 
+  // TB-Software: Fortschritts-Snapshots (z. B. Transkriptions-Polls) zu EINER Box je taskId
+  // buendeln. Nachrichten, deren Tool-Calls dazu gehoeren, nicht einzeln rendern; stattdessen
+  // am Anker (juengster Poll) genau eine Box einsetzen.
+  const { boxes: progressBoxes, claimedKeys: progressClaimedKeys } =
+    collectProgressBoxes(messagesToRender);
+  const progressAnchorToBox = new Map<number, TbProgressBoxData>();
+  const progressClaimedIndices = new Set<number>();
+  for (const box of progressBoxes.values()) {
+    progressAnchorToBox.set(box.anchorIndex, box);
+  }
+  messagesToRender.forEach((message, index) => {
+    const ids = [
+      ...getToolRequests(message).map((r) => r.id),
+      ...getToolResponses(message).map((r) => r.id),
+    ];
+    if (ids.length > 0 && ids.every((id) => progressClaimedKeys.has(id))) {
+      progressClaimedIndices.add(index);
+    }
+  });
+
   // TB-Software: aufeinanderfolgende Werkzeug-Ketten (>=2 sichtbare Schritte) zu EINER
   // ausklappbaren Aktivitäts-Gruppe bündeln; alles andere normal rendern.
   const chains = identifyConsecutiveToolCalls(messagesToRender);
   const chainByIndex = new Map<number, number[]>();
   for (const chain of chains) {
-    if (chain.length >= 2) {
+    if (chain.length >= 2 && !chain.some((i) => progressClaimedIndices.has(i))) {
       for (const i of chain) chainByIndex.set(i, chain);
     }
   }
   const renderedChains = new Set<number>();
   const messageRows: ReactNode[] = [];
   messagesToRender.forEach((message, index) => {
+    if (progressClaimedIndices.has(index)) {
+      const box = progressAnchorToBox.get(index);
+      if (box) {
+        messageRows.push(<TbProgressBox key={`tb-progress-${box.key}`} box={box} />);
+      }
+      return;
+    }
     const chain = chainByIndex.get(index);
     if (chain) {
       const anchor = chain[0];
