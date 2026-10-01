@@ -475,7 +475,7 @@ export default function BaseChat({
             {messages.length > 0 || recipe ? (
               <>
                 <SearchView>
-                  <ChatCopyContextMenu>
+                  <ChatCopyContextMenu workingDir={session?.working_dir}>
                   <ProgressiveMessageList
                     messages={messages}
                     sessionId={sessionId}

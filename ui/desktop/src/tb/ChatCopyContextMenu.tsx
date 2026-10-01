@@ -1,12 +1,58 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { toast } from 'react-toastify';
 import { copyText } from './copyPath';
+
+type ElectronApi = {
+  showItemInFolder?: (x: string) => void;
+  openDirectoryInExplorer?: (dir: string) => void;
+  showSaveDialog?: (o: unknown) => Promise<{ canceled?: boolean; filePath?: string }>;
+  writeFile?: (filePath: string, content: string) => Promise<boolean>;
+};
+function electronApi(): ElectronApi | undefined {
+  try {
+    return (window as unknown as { electron?: ElectronApi }).electron;
+  } catch {
+    return undefined;
+  }
+}
 
 function showInExplorer(p: string) {
   try {
-    const el = (window as unknown as { electron?: { showItemInFolder?: (x: string) => void } }).electron;
-    el?.showItemInFolder?.(p);
+    electronApi()?.showItemInFolder?.(p);
   } catch {
     /* Electron-API nicht verfuegbar */
+  }
+}
+
+function openProjectFolder(dir: string) {
+  try {
+    electronApi()?.openDirectoryInExplorer?.(dir);
+  } catch {
+    /* Electron-API nicht verfuegbar */
+  }
+}
+
+async function saveChatToFile(text: string) {
+  const api = electronApi();
+  if (!api?.showSaveDialog || !api?.writeFile) {
+    void copyText(text, 'Chat kopiert (Speichern nicht verfuegbar)');
+    return;
+  }
+  try {
+    const ts = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
+    const res = await api.showSaveDialog({
+      defaultPath: `TB-Goose-Chat_${ts}.md`,
+      filters: [
+        { name: 'Markdown', extensions: ['md'] },
+        { name: 'Text', extensions: ['txt'] },
+      ],
+    });
+    if (res?.canceled || !res?.filePath) return;
+    const ok = await api.writeFile(res.filePath, text);
+    if (ok) toast.success('Chat gespeichert', { autoClose: 1500 });
+    else toast.error('Speichern fehlgeschlagen');
+  } catch {
+    toast.error('Speichern fehlgeschlagen');
   }
 }
 
@@ -35,7 +81,10 @@ interface MenuState {
   blockText: string;
 }
 
-export const ChatCopyContextMenu: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+export const ChatCopyContextMenu: React.FC<{ children: React.ReactNode; workingDir?: string | null }> = ({
+  children,
+  workingDir,
+}) => {
   const [menu, setMenu] = useState<MenuState | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -132,6 +181,32 @@ export const ChatCopyContextMenu: React.FC<{ children: React.ReactNode }> = ({ c
           >
             Ganzen Chat kopieren
           </button>
+          <button
+            type="button"
+            className="w-full text-left px-3 py-1.5 hover:bg-muted/50 text-text-primary cursor-pointer"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              void saveChatToFile(containerRef.current?.innerText ?? '');
+              setMenu(null);
+            }}
+          >
+            Chat als Datei speichern
+          </button>
+          {workingDir && (
+            <button
+              type="button"
+              className="w-full text-left px-3 py-1.5 hover:bg-muted/50 text-text-primary cursor-pointer"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                openProjectFolder(workingDir);
+                setMenu(null);
+              }}
+            >
+              Projektordner oeffnen
+            </button>
+          )}
         </div>
       )}
     </>
