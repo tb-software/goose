@@ -8,7 +8,7 @@ import {
   acpChatSessionStore,
   type AcpChatSessionSnapshot,
 } from '../chatSessionStore';
-import { acpCancelPrompt, acpPromptSession } from '../prompt';
+import { acpCancelPrompt, acpPromptSession, acpSteerSession } from '../prompt';
 import {
   acpLoadSession,
   acpTruncateSessionConversation,
@@ -31,6 +31,7 @@ vi.mock('../chatSessionStore', () => ({
     startPromptAttempt: vi.fn(),
     finishPromptAttemptIfCurrent: vi.fn(),
     isCurrentPromptAttempt: vi.fn(),
+    adoptActiveRun: vi.fn(),
     setMessages: vi.fn(),
     addPendingLocalSteerMessage: vi.fn(),
     clearActivePromptAttempt: vi.fn(),
@@ -55,6 +56,7 @@ vi.mock('../sessions', () => ({
 vi.mock('../prompt', () => ({
   acpCancelPrompt: vi.fn(),
   acpPromptSession: vi.fn(),
+  acpSteerSession: vi.fn(),
 }));
 
 const SESSION_ID = 'session-1';
@@ -270,6 +272,59 @@ describe('acpChatSessionController.submitMessage', () => {
     expect(acpPromptSession).toHaveBeenCalled();
   });
 
+  it('steers into the active run and adopts it when the backend reports a run conflict', async () => {
+    const message = userMessage();
+    vi.mocked(acpPromptSession).mockRejectedValueOnce(
+      new Error('session already has active run `run_conflict-1`; use _goose/unstable/session/steer')
+    );
+    vi.mocked(acpChatSessionActions.isCurrentPromptAttempt).mockReturnValue(true);
+    vi.mocked(acpSteerSession).mockResolvedValue({ messageId: 'steered-1' } as never);
+    const onFinish = vi.fn();
+
+    await acpChatSessionController.submitMessage(SESSION_ID, message, {
+      getCurrentSnapshot: () => ({
+        ...snapshotWithActivePrompt(null),
+        messages: [message],
+      }),
+      onFinish,
+    });
+
+    expect(acpSteerSession).toHaveBeenCalledWith(SESSION_ID, message, 'run_conflict-1');
+    expect(acpChatSessionActions.adoptActiveRun).toHaveBeenCalledWith(
+      SESSION_ID,
+      expect.any(String),
+      'run_conflict-1'
+    );
+    expect(acpChatSessionActions.addPendingLocalSteerMessage).toHaveBeenCalledWith(
+      SESSION_ID,
+      expect.objectContaining({ id: 'steered-1' })
+    );
+    // Kein Fehler-Finish: der Chat wird NICHT mit einer Fehlertoast blockiert.
+    expect(acpChatSessionActions.finishPromptAttemptIfCurrent).not.toHaveBeenCalled();
+    expect(onFinish).not.toHaveBeenCalledWith(expect.any(String));
+  });
+
+  it('adopts the active run even if steering fails, so the user can stop it', async () => {
+    const message = userMessage();
+    vi.mocked(acpPromptSession).mockRejectedValueOnce(
+      new Error('session already has active run `run_conflict-2`; use _goose/unstable/session/steer')
+    );
+    vi.mocked(acpChatSessionActions.isCurrentPromptAttempt).mockReturnValue(true);
+    vi.mocked(acpSteerSession).mockRejectedValueOnce(new Error('steer failed'));
+    const onFinish = vi.fn();
+
+    await acpChatSessionController.submitMessage(SESSION_ID, message, {
+      getCurrentSnapshot: () => ({ ...snapshotWithActivePrompt(null), messages: [message] }),
+      onFinish,
+    });
+
+    expect(acpChatSessionActions.adoptActiveRun).toHaveBeenCalledWith(
+      SESSION_ID,
+      expect.any(String),
+      'run_conflict-2'
+    );
+    expect(onFinish).not.toHaveBeenCalledWith(expect.any(String));
+  });
 });
 
 describe('acpChatSessionController.updateMessage', () => {

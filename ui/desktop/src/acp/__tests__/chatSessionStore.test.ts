@@ -488,6 +488,40 @@ describe('acpChatSessionStore', () => {
     expect(acpChatSessionStore.getSnapshot(currentSessionId)?.pendingCancelPromptAttemptId).toBeNull();
   });
 
+  // TB-Software: Endet ein laufender Lauf (run -> null), waehrend noch ein Versuch aktiv ist, dessen
+  // prompt-Antwort nie kam (Desync/adoptierter Lauf), muss das Notification-Netz den Chat auf Idle
+  // bringen - sonst haengt er dauerhaft auf "Streaming".
+  it('finishes a stuck attempt when the backend reports the run ended (lost prompt response)', () => {
+    const currentSessionId = sessionId('session-1');
+
+    acpChatSessionActions.startPromptAttempt(currentSessionId, 'attempt-1');
+    acpChatSessionActions.applyAcpSessionNotification(
+      activeRunNotification(currentSessionId, 'run-1')
+    );
+
+    const ended = acpChatSessionActions.applyAcpSessionNotification(
+      activeRunNotification(currentSessionId, null)
+    );
+
+    expect(ended.chatState).toBe(ChatState.Idle);
+    expect(ended.activePromptAttemptId).toBeNull();
+    expect(ended.activeRunId).toBeNull();
+  });
+
+  it('does not finish the attempt on the initial null run id before a run starts', () => {
+    const currentSessionId = sessionId('session-1');
+
+    acpChatSessionActions.startPromptAttempt(currentSessionId, 'attempt-1');
+    // activeRunId startet als null; ein fruehes session_info_update mit null darf den Versuch NICHT
+    // beenden (sonst wuerde jeder Lauf sofort abbrechen, bevor eine run id zugewiesen ist).
+    const stillRunning = acpChatSessionActions.applyAcpSessionNotification(
+      activeRunNotification(currentSessionId, null)
+    );
+
+    expect(stillRunning.activePromptAttemptId).toBe('attempt-1');
+    expect(stillRunning.chatState).toBe(ChatState.Streaming);
+  });
+
   it('clears active run ids when the prompt attempt finishes', () => {
     const currentSessionId = sessionId('session-1');
 

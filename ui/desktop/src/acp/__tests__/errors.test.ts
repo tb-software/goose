@@ -1,6 +1,36 @@
 import { describe, expect, it } from 'vitest';
 import { RequestError } from '@agentclientprotocol/sdk';
-import { formatAcpError, parseAcpCreditsExhaustedError } from '../errors';
+import {
+  formatAcpError,
+  parseAcpActiveRunConflict,
+  parseAcpCreditsExhaustedError,
+} from '../errors';
+
+describe('parseAcpActiveRunConflict', () => {
+  it('extracts the run id from a backtick-quoted active-run error', () => {
+    expect(
+      parseAcpActiveRunConflict(
+        new Error(
+          'session already has active run `run_2eb2ff36-c616-49ad-8fd9-a96e3d253315`; use _goose/unstable/session/steer'
+        )
+      )
+    ).toBe('run_2eb2ff36-c616-49ad-8fd9-a96e3d253315');
+  });
+
+  it('extracts the run id from a JSON-RPC-shaped error', () => {
+    expect(
+      parseAcpActiveRunConflict({
+        message: 'session already has active run `run_abc`; use steer',
+        data: {},
+      })
+    ).toBe('run_abc');
+  });
+
+  it('returns null for unrelated errors', () => {
+    expect(parseAcpActiveRunConflict(new Error('something else failed'))).toBeNull();
+    expect(parseAcpActiveRunConflict(null)).toBeNull();
+  });
+});
 
 describe('formatAcpError', () => {
   it('explains how to recover from an authentication error', () => {

@@ -113,6 +113,11 @@ export interface AcpChatSessionActions {
   finishPromptAttemptIfCurrent(sessionId: string, promptAttemptId: string): boolean;
   clearActivePromptAttempt(sessionId: string): AcpChatSessionSnapshot | undefined;
   isCurrentPromptAttempt(sessionId: string, promptAttemptId: string): boolean;
+  adoptActiveRun(
+    sessionId: string,
+    promptAttemptId: string,
+    runId: string
+  ): AcpChatSessionSnapshot | undefined;
 }
 
 interface AcpChatSessionStoreInternal extends AcpChatSessionStore, AcpChatSessionActions {
@@ -460,6 +465,27 @@ function createAcpChatSessionStoreInternal(): AcpChatSessionStoreInternal {
     promptAttemptId
   ) => sessionsById.get(sessionId)?.activePromptAttemptId === promptAttemptId;
 
+  // TB-Software: Einen bereits im Backend laufenden Lauf (per Fehler "active run" entdeckt) in den
+  // Client-Zustand uebernehmen, damit die UI ihn als laufend zeigt und STOP greift. Nur fuer den
+  // aktuellen Versuch; der Abschluss kommt dann ueber das session_info_update-Netz (activeRunId->null).
+  const adoptActiveRun: AcpChatSessionActions['adoptActiveRun'] = (
+    sessionId,
+    promptAttemptId,
+    runId
+  ) => {
+    const entry = sessionsById.get(sessionId);
+    if (!entry || entry.activePromptAttemptId !== promptAttemptId) {
+      return undefined;
+    }
+    entry.activeRunId = runId;
+    entry.pendingCancelPromptAttemptId = null;
+    entry.promptCancellationRestoreState = null;
+    if (entry.chatState === ChatState.Idle) {
+      entry.chatState = ChatState.Streaming;
+    }
+    return notify(sessionId, entry);
+  };
+
   const tbListChats: AcpChatSessionStoreInternal['tbListChats'] = () => {
     const out: { sessionId: string; chatState: ChatState; hasSession: boolean }[] = [];
     for (const [sessionId, entry] of sessionsById) {
@@ -590,6 +616,7 @@ function createAcpChatSessionStoreInternal(): AcpChatSessionStoreInternal {
     finishPromptAttemptIfCurrent,
     clearActivePromptAttempt,
     isCurrentPromptAttempt,
+    adoptActiveRun,
     applyAcpSessionNotification,
     applyAcpGooseSessionNotification,
     applyPermissionRequest,
@@ -686,6 +713,7 @@ function actionsFromStore(store: AcpChatSessionStoreInternal): AcpChatSessionAct
     finishPromptAttemptIfCurrent: store.finishPromptAttemptIfCurrent,
     clearActivePromptAttempt: store.clearActivePromptAttempt,
     isCurrentPromptAttempt: store.isCurrentPromptAttempt,
+    adoptActiveRun: store.adoptActiveRun,
   };
 }
 
@@ -707,6 +735,7 @@ function applyChatStateChanges(entry: StoreEntry, changes: AcpChatStateChange[])
           entry.session = { ...entry.session, name: change.name };
         }
         if (change.activeRunId !== undefined) {
+          const previousRunId = entry.activeRunId;
           entry.activeRunId = change.activeRunId;
           // TB-Software: Meldet das Backend das Ende des Laufs (activeRunId=null), einen evtl. nach
           // STOP hängenden Cancel-Block lösen. Ohne das bleibt der Chat gesperrt, wenn die zugehörige
@@ -714,6 +743,23 @@ function applyChatStateChanges(entry: StoreEntry, changes: AcpChatStateChange[])
           if (change.activeRunId === null && entry.pendingCancelPromptAttemptId !== null) {
             entry.pendingCancelPromptAttemptId = null;
             entry.promptCancellationRestoreState = null;
+          }
+          // TB-Software: Lief ein Run (previousRunId gesetzt) und endet jetzt (->null), waehrend noch
+          // ein Versuch aktiv ist, dessen session/prompt-Antwort aber nie kam (Desync/adoptierter
+          // Lauf), beendet dieses Notification-Netz den Versuch -> Idle. Bei normalen Laeufen hat die
+          // aufgeloeste prompt-Antwort den Versuch meist schon beendet; dann ist das hier ein No-op.
+          if (
+            change.activeRunId === null &&
+            previousRunId != null &&
+            entry.activePromptAttemptId !== null
+          ) {
+            entry.activePromptAttemptId = null;
+            entry.pendingCancelPromptAttemptId = null;
+            entry.promptCancellationRestoreState = null;
+            entry.pendingUserInputRequestIds.clear();
+            discardPendingLocalSteerMessages(entry);
+            entry.progressMessage = undefined;
+            entry.chatState = ChatState.Idle;
           }
         }
         break;

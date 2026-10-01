@@ -18,11 +18,12 @@ import {
 import { cancelAcpElicitationRequestsForSession } from './elicitationRequests';
 import {
   formatAcpError,
+  parseAcpActiveRunConflict,
   parseAcpCreditsExhaustedError,
   type AcpCreditsExhaustedError,
 } from './errors';
 import { cancelAcpPermissionRequestsForSession } from './permissionRequests';
-import { acpCancelPrompt, acpPromptSession } from './prompt';
+import { acpCancelPrompt, acpPromptSession, acpSteerSession } from './prompt';
 import {
   acpForkSession,
   acpLoadSession,
@@ -215,6 +216,41 @@ async function submitMessage(
       acpChatSessionActions.setMessages(sessionId, messages);
       if (acpChatSessionActions.finishPromptAttemptIfCurrent(sessionId, promptAttemptId)) {
         void options.onFinish();
+      }
+      return;
+    }
+
+    // TB-Software: Lehnt das Backend den Prompt ab, weil die Session schon einen Lauf hat
+    // (Client/Backend-Desync), die Nachricht NICHT verwerfen: in den laufenden Lauf steuern und ihn
+    // uebernehmen, damit die UI ihn als laufend zeigt und STOP/Bearbeiten wieder greifen.
+    const activeRunConflictId = parseAcpActiveRunConflict(error);
+    if (activeRunConflictId) {
+      if (!acpChatSessionActions.isCurrentPromptAttempt(sessionId, promptAttemptId)) {
+        return;
+      }
+      try {
+        const response = await acpSteerSession(sessionId, userMessage, activeRunConflictId);
+        if (!acpChatSessionActions.isCurrentPromptAttempt(sessionId, promptAttemptId)) {
+          return;
+        }
+        const currentMessages = options.getCurrentSnapshot()?.messages ?? [];
+        const withoutOptimistic = currentMessages.filter((m) => m.id !== userMessage.id);
+        acpChatSessionActions.setMessages(sessionId, withoutOptimistic);
+        if (!withoutOptimistic.some((m) => m.id === response.messageId)) {
+          acpChatSessionActions.addPendingLocalSteerMessage(sessionId, {
+            ...userMessage,
+            id: response.messageId,
+            metadata: { ...userMessage.metadata, steer: true },
+          });
+        }
+        acpChatSessionActions.adoptActiveRun(sessionId, promptAttemptId, activeRunConflictId);
+      } catch (steerError) {
+        console.warn('Failed to steer into active run after conflict:', steerError);
+        // Steer fehlgeschlagen: wenigstens den Lauf uebernehmen, damit der Nutzer stoppen kann;
+        // die eingegebene Nachricht bleibt sichtbar und kann nach STOP erneut gesendet werden.
+        if (acpChatSessionActions.isCurrentPromptAttempt(sessionId, promptAttemptId)) {
+          acpChatSessionActions.adoptActiveRun(sessionId, promptAttemptId, activeRunConflictId);
+        }
       }
       return;
     }

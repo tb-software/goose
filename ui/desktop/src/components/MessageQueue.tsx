@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useState } from 'react';
 import {
   Clock,
   Send,
@@ -67,21 +67,9 @@ const i18n = defineMessages({
     id: 'messageQueue.queuePausedExpanded',
     defaultMessage: 'Queue paused by interruption. Use "Send Now" or add a new message to resume.',
   },
-  save: {
-    id: 'messageQueue.save',
-    defaultMessage: 'Save',
-  },
-  cancel: {
-    id: 'messageQueue.cancel',
-    defaultMessage: 'Cancel',
-  },
   clickToEdit: {
     id: 'messageQueue.clickToEdit',
-    defaultMessage: '{content} (Click to edit)',
-  },
-  cannotSendWhileEditing: {
-    id: 'messageQueue.cannotSendWhileEditing',
-    defaultMessage: 'Cannot send while editing',
+    defaultMessage: '{content} (Zum Bearbeiten anklicken - holt den Text ins Eingabefeld)',
   },
   stopAndSend: {
     id: 'messageQueue.stopAndSend',
@@ -113,10 +101,7 @@ interface MessageQueueProps {
   onRemoveMessage: (id: string) => void;
   onClearQueue: () => void;
   onStopAndSend?: (messageId: string) => void;
-  onEditMessage?: (messageId: string, newContent: string) => void;
   onPullToInput?: (messageId: string) => void;
-  onTriggerQueueProcessing?: () => void;
-  editingMessageIdRef?: React.MutableRefObject<string | null>;
   onReorderMessages?: (reorderedMessages: QueuedMessage[]) => void;
   sendingMessageIds?: ReadonlySet<string>;
   className?: string;
@@ -128,10 +113,7 @@ export const MessageQueue: React.FC<MessageQueueProps> = ({
   onRemoveMessage,
   onClearQueue,
   onStopAndSend,
-  onEditMessage,
   onPullToInput,
-  onTriggerQueueProcessing,
-  editingMessageIdRef,
   onReorderMessages,
   sendingMessageIds,
   className = '',
@@ -142,10 +124,6 @@ export const MessageQueue: React.FC<MessageQueueProps> = ({
   const [draggedItem, setDraggedItem] = useState<string | null>(null);
   const [dragOverItem, setDragOverItem] = useState<string | null>(null);
   const [hoveredMessage, setHoveredMessage] = useState<string | null>(null);
-  const [editingMessage, setEditingMessage] = useState<string | null>(null);
-  const [editContent, setEditContent] = useState<string>('');
-  const onTriggerQueueProcessingRef = useRef(onTriggerQueueProcessing);
-  onTriggerQueueProcessingRef.current = onTriggerQueueProcessing;
   const isSendingMessage = (messageId: string) => sendingMessageIds?.has(messageId) ?? false;
 
   if (queuedMessages.length === 0) {
@@ -376,7 +354,6 @@ export const MessageQueue: React.FC<MessageQueueProps> = ({
       <div className="p-4 space-y-3 bg-background max-h-80 overflow-y-auto">
         {queuedMessages.map((message, index) => {
           const isSending = isSendingMessage(message.id);
-          const isEditing = editingMessage === message.id;
           return (
             <div
               key={message.id}
@@ -426,76 +403,25 @@ export const MessageQueue: React.FC<MessageQueueProps> = ({
                   )}
                 </div>
 
-                {/* Message content */}
+                {/* Message content - Klick holt den Text zum Bearbeiten ins Eingabefeld (kein
+                    verwirrendes Inline-"Speichern"); dort entscheidet der Nutzer senden vs. anhaengen. */}
                 <div className="flex-1 min-w-0">
-                  {isEditing ? (
-                    <div className="space-y-2">
-                      <textarea
-                        value={editContent}
-                        onChange={(e) => setEditContent(e.target.value)}
-                        disabled={isSending}
-                        className="w-full text-sm bg-background border border-border rounded-md px-2 py-1 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                        rows={Math.min(Math.ceil(editContent.length / 60), 4)}
-                        autoFocus
-                      />
-                      <div className="flex gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          disabled={isSending}
-                          onClick={() => {
-                            if (isSending) return;
-                            if (onEditMessage) {
-                              onEditMessage(message.id, editContent);
-                            }
-                            setEditingMessage(null);
-                            if (editingMessageIdRef) editingMessageIdRef.current = null;
-                            // Trigger queue processing if system is ready
-                            if (onTriggerQueueProcessing) {
-                              setTimeout(() => onTriggerQueueProcessingRef.current?.(), 100);
-                            }
-                            setEditContent('');
-                          }}
-                          className="h-6 px-2 text-xs"
-                        >
-                          {intl.formatMessage(i18n.save)}
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => {
-                            setEditingMessage(null);
-                            if (editingMessageIdRef) editingMessageIdRef.current = null;
-                            // Trigger queue processing if system is ready
-                            if (onTriggerQueueProcessing) {
-                              setTimeout(() => onTriggerQueueProcessingRef.current?.(), 100);
-                            }
-                            setEditContent('');
-                          }}
-                          className="h-6 px-2 text-xs"
-                        >
-                          {intl.formatMessage(i18n.cancel)}
-                        </Button>
-                      </div>
-                    </div>
-                  ) : (
-                    <p
-                      className={`text-sm text-foreground leading-relaxed rounded px-1 py-0.5 transition-colors ${
-                        isSending ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-muted/30'
-                      }`}
-                      title={intl.formatMessage(i18n.clickToEdit, { content: message.content })}
-                      onClick={() => {
-                        if (isSending) return;
-                        setEditingMessage(message.id);
-                        if (editingMessageIdRef) editingMessageIdRef.current = message.id;
-                        setEditContent(message.content);
-                      }}
-                    >
-                      {message.content.length > 80
-                        ? `${message.content.substring(0, 80)}...`
-                        : message.content}
-                    </p>
-                  )}
+                  <p
+                    className={`text-sm text-foreground leading-relaxed rounded px-1 py-0.5 transition-colors ${
+                      isSending || !onPullToInput
+                        ? 'cursor-default'
+                        : 'cursor-pointer hover:bg-muted/30'
+                    }`}
+                    title={intl.formatMessage(i18n.clickToEdit, { content: message.content })}
+                    onClick={() => {
+                      if (isSending || !onPullToInput) return;
+                      onPullToInput(message.id);
+                    }}
+                  >
+                    {message.content.length > 80
+                      ? `${message.content.substring(0, 80)}...`
+                      : message.content}
+                  </p>
                 </div>
 
                 {/* Right side actions */}
@@ -510,17 +436,11 @@ export const MessageQueue: React.FC<MessageQueueProps> = ({
                       variant="ghost"
                       size="sm"
                       onClick={() => onStopAndSend(message.id)}
-                      disabled={isEditing || isSending}
+                      disabled={isSending}
                       className={`h-7 w-7 p-0 rounded-full transition-all duration-200 ${
-                        isEditing || isSending
-                          ? 'opacity-30 cursor-not-allowed'
-                          : 'hover:bg-muted/50'
+                        isSending ? 'opacity-30 cursor-not-allowed' : 'hover:bg-muted/50'
                       }`}
-                      title={
-                        isEditing
-                          ? intl.formatMessage(i18n.cannotSendWhileEditing)
-                          : intl.formatMessage(i18n.stopAndSend)
-                      }
+                      title={intl.formatMessage(i18n.stopAndSend)}
                     >
                       <Send className="w-3 h-3" />
                     </Button>
@@ -531,7 +451,7 @@ export const MessageQueue: React.FC<MessageQueueProps> = ({
                     <Button
                       variant="ghost"
                       size="sm"
-                      disabled={isSending || isEditing}
+                      disabled={isSending}
                       onClick={() => onPullToInput(message.id)}
                       className="opacity-60 hover:opacity-100 transition-opacity h-6 w-6 p-0 hover:bg-muted/50 rounded-full"
                       title={intl.formatMessage(i18n.pullToInput)}

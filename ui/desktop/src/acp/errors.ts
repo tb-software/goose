@@ -46,6 +46,24 @@ export function parseAcpCreditsExhaustedError(error: unknown): AcpCreditsExhaust
   };
 }
 
+// TB-Software: Das Backend lehnt einen session/prompt ab, wenn dieselbe Session bereits einen Lauf
+// hat ("session already has active run `run_...`; use _goose/unstable/session/steer"). Das passiert bei
+// Client/Backend-Desync (lange Session, Reconnect, verlorene prompt-Antwort): der Client haelt sich fuer
+// idle, das Backend arbeitet noch. Wir ziehen die Run-ID heraus, um den Lauf zu adoptieren und die
+// Nachricht per Steer umzulenken, statt den Chat mit einem Fehler zu blockieren. Gibt die Run-ID oder null.
+export function parseAcpActiveRunConflict(error: unknown): string | null {
+  const message = acpErrorMessage(error);
+  if (!message || !/already has active run/i.test(message)) {
+    return null;
+  }
+  const quoted = message.match(/active run\s+`([^`]+)`/i);
+  if (quoted) {
+    return quoted[1];
+  }
+  const bare = message.match(/\brun_[A-Za-z0-9-]+/);
+  return bare ? bare[0] : null;
+}
+
 export function formatAcpError(error: unknown): string {
   if (error instanceof RequestError && error.code === AUTH_REQUIRED_CODE) {
     return 'Sign in to your provider, then try again.';

@@ -154,6 +154,22 @@ const i18n = defineMessages({
     id: 'chatInput.send',
     defaultMessage: 'Send',
   },
+  appendToQueue: {
+    id: 'chatInput.appendToQueue',
+    defaultMessage: 'Anhaengen',
+  },
+  appendToQueueTooltip: {
+    id: 'chatInput.appendToQueueTooltip',
+    defaultMessage: 'An die Warteschlange anhaengen - wird nach dem aktuellen Lauf gesendet',
+  },
+  sendNow: {
+    id: 'chatInput.sendNow',
+    defaultMessage: 'Sofort senden',
+  },
+  sendNowTooltip: {
+    id: 'chatInput.sendNowTooltip',
+    defaultMessage: 'Sofort in den laufenden Lauf einspeisen (umlenken)',
+  },
   waitingForCancellation: {
     id: 'chatInput.waitingForCancellation',
     defaultMessage: 'Waiting for cancellation to finish',
@@ -282,7 +298,6 @@ export default function ChatInput({
   // Queue functionality - ephemeral, only exists in memory for this chat instance
   const [queuedMessages, setQueuedMessages] = useState<QueuedMessage[]>([]);
   const queuePausedRef = useRef(false);
-  const editingMessageIdRef = useRef<string | null>(null);
   const sendAfterStopMessageIdRef = useRef<string | null>(null);
   const sendNowInFlightMessageIdsRef = useRef<Set<string>>(new Set());
   const [sendNowInFlightMessageIds, setSendNowInFlightMessageIds] = useState<ReadonlySet<string>>(
@@ -1282,6 +1297,32 @@ export default function ChatInput({
     }
   };
 
+  // TB-Software: "Sofort senden" aus dem Eingabefeld, waehrend ein Lauf aktiv ist: den aktuellen Text
+  // per Steer in den laufenden Lauf einspeisen (umlenken), statt ihn nur anzuhaengen. Klappt das nicht
+  // (kein steuerbarer Lauf), faellt es auf normales Senden bzw. Anhaengen zurueck.
+  const handleSendNowFromInput = async () => {
+    if (queueProcessingBlocked || !hasSubmittableContent) {
+      return;
+    }
+    const images = convertImagesToImageData();
+    const text = appendDroppedFilePaths(displayValue.trim());
+    if (onSteerQueuedMessage) {
+      const accepted = await onSteerQueuedMessage({ msg: text, images });
+      if (accepted) {
+        if (displayValue.trim()) {
+          LocalMessageStorage.addMessage(displayValue);
+        }
+        clearInputState();
+        return;
+      }
+    }
+    if (!isLoading) {
+      performSubmit();
+    } else {
+      handleInterruptionAndQueue();
+    }
+  };
+
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   const handleFileSelect = () => {
@@ -1437,13 +1478,6 @@ export default function ChatInput({
     setQueuedMessages(reorderedMessages);
   };
 
-  const handleEditMessage = (messageId: string, newContent: string) => {
-    if (sendNowInFlightMessageIdsRef.current.has(messageId)) return;
-    setQueuedMessages((prev) =>
-      prev.map((msg) => (msg.id === messageId ? { ...msg, content: newContent } : msg))
-    );
-  };
-
   const handleStopAndSend = async (messageId: string) => {
     const messageToSend = queuedMessages.find((msg) => msg.id === messageId);
     if (!messageToSend) return;
@@ -1516,24 +1550,6 @@ export default function ChatInput({
     if (onStop) onStop();
   };
 
-  const handleResumeQueue = () => {
-    queuePausedRef.current = false;
-    setLastInterruption(null);
-    if (!isLoading && !queueProcessingBlocked && queuedMessages.length > 0) {
-      const nextMessage = queuedMessages[0];
-      LocalMessageStorage.addMessage(nextMessage.content);
-      handleSubmit({ msg: nextMessage.content, images: nextMessage.images });
-      setQueuedMessages((prev) => {
-        const newQueue = prev.slice(1);
-        // If queue becomes empty after processing, clear the paused state
-        if (newQueue.length === 0) {
-          queuePausedRef.current = false;
-          setLastInterruption(null);
-        }
-        return newQueue;
-      });
-    }
-  };
 
   return (
     <div
@@ -1563,10 +1579,7 @@ export default function ChatInput({
           onClearQueue={handleClearQueue}
           onStopAndSend={handleStopAndSend}
           onReorderMessages={handleReorderMessages}
-          onEditMessage={handleEditMessage}
           onPullToInput={handlePullQueuedToInput}
-          onTriggerQueueProcessing={handleResumeQueue}
-          editingMessageIdRef={editingMessageIdRef}
           sendingMessageIds={sendNowInFlightMessageIds}
           isPaused={queuePausedRef.current}
           className="border-b border-border-primary"
@@ -1932,6 +1945,50 @@ export default function ChatInput({
           >
             <Stop />
           </Button>
+        ) : isLoading && hasSubmittableContent ? (
+          // TB-Software: Laeuft noch etwas und es gibt neuen Text, bietet die Leiste zwei klare
+          // Aktionen statt eines mehrdeutigen Pfeils: anhaengen (nach dem Lauf) oder sofort senden
+          // (in den laufenden Lauf einspeisen).
+          <div className="flex items-center gap-2">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    disabled={queueProcessingBlocked}
+                    onClick={onFormSubmit}
+                    className="h-8 px-3 text-xs bg-background-tertiary text-text-primary hover:bg-background-tertiary/70"
+                  >
+                    {intl.formatMessage(i18n.appendToQueue)}
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>{intl.formatMessage(i18n.appendToQueueTooltip)}</p>
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="default"
+                    disabled={queueProcessingBlocked}
+                    onClick={handleSendNowFromInput}
+                    className="h-8 px-3 text-xs"
+                  >
+                    {intl.formatMessage(i18n.sendNow)}
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>{intl.formatMessage(i18n.sendNowTooltip)}</p>
+              </TooltipContent>
+            </Tooltip>
+          </div>
         ) : (
           <Tooltip>
             <TooltipTrigger asChild>
