@@ -2780,6 +2780,16 @@ impl Agent {
                                     }
                                 });
 
+                                // TB-Software: Manche Modelle/Nodes geben Tool-Calls als TEXT aus
+                                // (<tool_call><function=...>) statt als native tool_calls. Ohne native
+                                // Aufrufe wuerden sie nur als Text erscheinen, nie ausgefuehrt und die
+                                // autonome Schleife bliebe stehen. Hier in echte ToolRequests wandeln
+                                // (No-op, wenn native tool_calls vorhanden sind -> Normalfall unberuehrt).
+                                let response =
+                                    crate::agents::tool_call_recovery::recover_leaked_tool_calls(
+                                        response, &tools,
+                                    );
+
                                 let (tool_requests, filtered_response) = self
                                     .categorize_tool_requests(
                                         &response,
