@@ -64,6 +64,23 @@ export function tbDefaultsDir(): string {
     : path.join(app.getAppPath(), 'src', 'tb-defaults');
 }
 
+// TB-Software: Registrierter Gateway-Client-Key (sk-...) zur faelschungssicheren Identifikation im
+// LLMProxy2-Monitor (#routes). Liegt in src/tb-defaults/gateway-key.txt (gitignoriert: NICHT im Repo,
+// aber via extraResource im Deploy gebuendelt). Fehlt die Datei, bleibt der Dummy 'none' -> Betrieb
+// unveraendert, nur ohne registrierte Identitaet. Erste nicht-leere, nicht mit '#' beginnende Zeile.
+function readGatewayKey(): string | null {
+  try {
+    const raw = fs.readFileSync(path.join(tbDefaultsDir(), 'gateway-key.txt'), 'utf8');
+    for (const line of raw.split(/\r?\n/)) {
+      const t = line.trim();
+      if (t && !t.startsWith('#')) return t;
+    }
+  } catch {
+    /* keine Key-Datei gebuendelt -> Fallback 'none' */
+  }
+  return null;
+}
+
 // Fallback-Pfad, wenn keine lenaxdb-mcp.exe gefunden wird (Nutzer-Auswahl: Auto-Erkennung +
 // Fallback). Beim Werksreset wird dieser Platzhalter (enabled) eingetragen, damit die
 // Extension sichtbar/aktiv ist; der Nutzer korrigiert den Pfad ggf. in den Einstellungen.
@@ -71,7 +88,8 @@ const LENAXDB_FALLBACK_EXE = 'C:\\_AI\\Applications\\LenaX-DB\\mcp\\lenaxdb-mcp.
 
 export function ensureTbDefaults(): void {
   // (1) Env-Defaults — nur setzen, wenn der Nutzer/Starter nichts vorgegeben hat.
-  if (!process.env.OPENAI_API_KEY) process.env.OPENAI_API_KEY = 'none';
+  // Registrierten Gateway-Key (sk-...) senden, falls gebuendelt; sonst Dummy 'none'.
+  if (!process.env.OPENAI_API_KEY) process.env.OPENAI_API_KEY = readGatewayKey() ?? 'none';
   if (!process.env.GOOSE_DISABLE_KEYRING) process.env.GOOSE_DISABLE_KEYRING = 'true';
 
   // KRITISCH: Der Proxy-Endpunkt MUSS gesetzt sein, sonst spricht der eingebaute openai-Provider

@@ -1,0 +1,4 @@
+# VORLAGE. Echte Datei: gateway-key.txt (gitignoriert) mit dem registrierten sk-Key.
+# Key holen: POST https://t78.ch/apps/proxy/register.ashx (title/author/purpose).
+# Fehlt gateway-key.txt, sendet TB-Goose den Dummy "none" (Betrieb ok, nur ohne Identitaet).
+# sk-DEIN-REGISTRIERTER-KEY
