@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'react-toastify';
-import { copyText } from './copyPath';
+import { copyText, extractPath } from './copyPath';
 
 type ElectronApi = {
   showItemInFolder?: (x: string) => void;
@@ -60,18 +60,6 @@ async function saveChatToFile(text: string) {
 // ("Read Image source: D:\..."), Tabellenzelle mit Pfad, oder beliebiger Textblock - der Nutzer
 // kann immer den erkannten PFAD, die AUSWAHL oder den INHALT des Blocks kopieren. Einmal um die
 // Nachrichtenliste gelegt, deckt es alle Chat-Inhalte ab (kein Eingriff in jede Einzelkomponente).
-
-// Pfad-Erkennung: Windows (C:\...), UNC (\\server\...), Unix (/foo/bar). Nimmt den laengsten Treffer.
-const PATH_RE =
-  /([A-Za-z]:\\[^\s"'<>|)\]]+|\\\\[^\s"'<>|)\]]+|\/[^\s"'<>|)\]]{2,}\/[^\s"'<>|)\]]*)/g;
-
-function extractPath(text: string): string | null {
-  const matches = text.match(PATH_RE);
-  if (!matches || matches.length === 0) return null;
-  // laengsten Treffer nehmen, abschliessende Satzzeichen entfernen
-  const best = matches.sort((a, b) => b.length - a.length)[0];
-  return best.replace(/[.,;:!?]+$/, '');
-}
 
 interface MenuState {
   x: number;

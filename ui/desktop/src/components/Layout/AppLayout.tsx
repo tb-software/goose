@@ -14,6 +14,7 @@ import { cn } from '../../utils';
 import { UserInput } from '../../types/message';
 import { PreviewProvider } from '../../tb/preview/PreviewContext';
 import { PreviewPanel } from '../../tb/preview/PreviewPanel';
+import { TbGlobalCopyMenu } from '../../tb/TbGlobalCopyMenu';
 
 const i18n = defineMessages({
   openNavigation: {
@@ -177,6 +178,9 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ activeSessions }) => {
     <NavigationProvider>
       <PreviewProvider>
         <AppLayoutContent activeSessions={activeSessions} />
+        {/* TB-Software: app-weites Rechtsklick-Kopiermenue (Pfad/Auswahl/Inhalt) ueberall ausserhalb
+            der Nachrichtenliste; in der Liste bleibt das reichere ChatCopyContextMenu vorrangig. */}
+        <TbGlobalCopyMenu />
       </PreviewProvider>
     </NavigationProvider>
   );

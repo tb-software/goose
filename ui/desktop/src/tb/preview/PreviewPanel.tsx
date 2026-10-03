@@ -45,6 +45,46 @@ function clampWidth(w: number): number {
   return Math.min(MAX_W, Math.max(MIN_W, w));
 }
 
+// TB-Software: Aehnlichkeit zweier Dateinamen (Dice-Koeffizient ueber Zeichen-Bigramme, 0..1).
+// Fuer den "Datei nicht gefunden"-Fallback: findet den naechstliegenden echten Namen im selben Ordner,
+// wenn der geklickte Pfad nur leicht abweicht (z. B. "interview" vs. "international").
+function dirExt(name: string): string {
+  const i = name.lastIndexOf('.');
+  return i >= 0 ? name.slice(i).toLowerCase() : '';
+}
+function diceSimilarity(a: string, b: string): number {
+  const x = a.toLowerCase();
+  const y = b.toLowerCase();
+  if (x === y) return 1;
+  if (x.length < 2 || y.length < 2) return 0;
+  const A = new Map<string, number>();
+  for (let i = 0; i < x.length - 1; i++) {
+    const g = x.slice(i, i + 2);
+    A.set(g, (A.get(g) ?? 0) + 1);
+  }
+  let inter = 0;
+  for (let i = 0; i < y.length - 1; i++) {
+    const g = y.slice(i, i + 2);
+    const c = A.get(g);
+    if (c && c > 0) {
+      inter++;
+      A.set(g, c - 1);
+    }
+  }
+  return (2 * inter) / (x.length - 1 + (y.length - 1));
+}
+function bestNameMatch(target: string, names: string[]): { name: string; score: number } | null {
+  const tExt = dirExt(target);
+  let best: { name: string; score: number } | null = null;
+  for (const n of names) {
+    if (n === target) continue;
+    let s = diceSimilarity(target, n);
+    if (tExt && dirExt(n) === tExt) s += 0.05; // leichter Bonus fuer gleiche Endung
+    if (!best || s > best.score) best = { name: n, score: s };
+  }
+  return best;
+}
+
 const Centered: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <div className="flex-1 flex items-center justify-center p-6 text-sm text-text-secondary text-center">
     {children}
@@ -56,6 +96,9 @@ const PreviewBody: React.FC<{ path: string; reloadTick: number }> = ({ path, rel
   const [loading, setLoading] = useState(true);
   // Wird durch den Datei-Watcher (Auto-Refresh) erhöht, getrennt vom manuellen reloadTick.
   const [autoTick, setAutoTick] = useState(0);
+  // TB-Software: Bei "Datei nicht gefunden" der naechstliegende echte Treffer im selben Ordner.
+  const [suggestion, setSuggestion] = useState<{ path: string; name: string } | null>(null);
+  const preview = usePreview();
   const kind: PreviewKind = previewKindFor(path);
 
   // Beim Wechsel des Pfades: Ladehinweis zeigen + alten Inhalt verwerfen.
@@ -106,6 +149,33 @@ const PreviewBody: React.FC<{ path: string; reloadTick: number }> = ({ path, rel
     };
   }, [path, kind]);
 
+  // TB-Software: Fallback bei "Datei nicht gefunden" - den Ordner listen und den naechstliegenden
+  // Namen anbieten (fuer den Fall, dass im Antworttext ein leicht anderer Name steht als der, der
+  // tatsaechlich geschrieben wurde). Reset bei Pfadwechsel.
+  useEffect(() => {
+    setSuggestion(null);
+  }, [path]);
+  useEffect(() => {
+    if (loading || !res || res.ok) return;
+    if (!/ENOENT|no such file|not found/i.test(res.error ?? '')) return;
+    const sep = path.includes('\\') ? '\\' : '/';
+    const parent = path.replace(/[\\/][^\\/]*$/, '');
+    const target = baseName(path);
+    if (!parent || parent === path || !target) return;
+    let alive = true;
+    window.electron
+      .tbListDir(parent)
+      .then((r) => {
+        if (!alive || !r.ok) return;
+        const b = bestNameMatch(target, r.entries);
+        if (b && b.score >= 0.5) setSuggestion({ path: parent + sep + b.name, name: b.name });
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [loading, res, path]);
+
   if (kind === 'unknown') {
     return (
       <Centered>
@@ -136,6 +206,18 @@ const PreviewBody: React.FC<{ path: string; reloadTick: number }> = ({ path, rel
             <>
               <div>Datei nicht gefunden — evtl. verschoben oder umbenannt.</div>
               <MiddleTruncate text={path} tail={22} className="text-xs text-text-secondary max-w-full" />
+              {suggestion && (
+                <div className="flex items-center gap-2 text-xs mt-1">
+                  <span className="text-text-secondary">Meinten Sie:</span>
+                  <button
+                    className="underline text-text-primary"
+                    title={suggestion.path}
+                    onClick={() => preview?.open(suggestion.path)}
+                  >
+                    {suggestion.name}
+                  </button>
+                </div>
+              )}
             </>
           ) : (
             <div>Fehler: {res?.error ?? 'unbekannt'}</div>

@@ -3333,6 +3333,23 @@ async function appMain() {
     }
   });
 
+  // TB-Software: Datei-NAMEN eines Ordners auflisten (nur Dateien, gekappt). Fuer den Vorschau-
+  // Fallback: wenn ein geklickter Pfad nicht existiert (z. B. das Modell hat im Antworttext einen
+  // leicht anderen Namen geschrieben als tatsaechlich geschrieben wurde), den naechstliegenden
+  // Treffer im selben Ordner anbieten statt in einer Sackgasse zu enden.
+  ipcMain.handle('tb-list-dir', async (_event, dirPath: string) => {
+    try {
+      const dh = await fs.readdir(dirPath, { withFileTypes: true });
+      const entries = dh
+        .filter((d) => d.isFile())
+        .map((d) => d.name)
+        .slice(0, 2000);
+      return { ok: true, entries };
+    } catch (error) {
+      return { ok: false, error: (error as Error).message, entries: [] as string[] };
+    }
+  });
+
   // TB-Software: Datei fuer das Vorschau-Panel ueberwachen -> bei Aenderung auf der
   // Platte 'tb-file-changed' senden, damit die Vorschau automatisch neu laedt.
   // fsSync.watchFile (Polling per Stat) statt watch, weil es atomare Editor-Replaces

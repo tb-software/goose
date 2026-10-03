@@ -57,6 +57,14 @@ const i18n = defineMessages({
   },
 });
 
+// TB-Software: TB-Goose spricht IMMER den eigenen LLM-Gateway (LLMProxy2, Tenant gericom) ueber die
+// openai-KOMPATIBLE Schnittstelle an - niemals das echte OpenAI. Darum den Provider-Anzeigenamen
+// 'OpenAI' (nur der Schnittstellen-Typ) durch den tatsaechlichen Provider 'gericom' ersetzen, damit
+// die Leiste keinen fremden Anbieter suggeriert. Andere Provider bleiben unveraendert.
+function tbProviderLabel(providerId: string, fallbackDisplay: string): string {
+  return providerId === 'openai' ? 'gericom' : fallbackDisplay;
+}
+
 interface ModelsBottomBarProps {
   sessionId: string | null;
   dropdownRef: React.RefObject<HTMLDivElement>;
@@ -131,10 +139,10 @@ export default function ModelsBottomBar({
     if (!currentProvider) return;
     getProviderMetadata(currentProvider)
       .then((metadata) => {
-        setDisplayProvider(metadata.display_name || currentProvider);
+        setDisplayProvider(tbProviderLabel(currentProvider, metadata.display_name || currentProvider));
       })
       .catch(() => {
-        setDisplayProvider(currentProvider);
+        setDisplayProvider(tbProviderLabel(currentProvider, currentProvider));
       });
   }, [currentProvider, currentModel]);
 

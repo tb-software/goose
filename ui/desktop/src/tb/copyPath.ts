@@ -32,6 +32,18 @@ export async function copyText(
   }
 }
 
+// Pfad-Erkennung (geteilt von Chat- und globalem Kontextmenue): Windows (C:\...), UNC (\\server\...),
+// Unix (/foo/bar). Nimmt den laengsten Treffer, entfernt abschliessende Satzzeichen.
+export const PATH_RE =
+  /([A-Za-z]:\\[^\s"'<>|)\]]+|\\\\[^\s"'<>|)\]]+|\/[^\s"'<>|)\]]{2,}\/[^\s"'<>|)\]]*)/g;
+
+export function extractPath(text: string): string | null {
+  const matches = text.match(PATH_RE);
+  if (!matches || matches.length === 0) return null;
+  const best = matches.sort((a, b) => b.length - a.length)[0];
+  return best.replace(/[.,;:!?]+$/, '');
+}
+
 export async function copyAbsolutePath(path: string | null | undefined): Promise<void> {
   const value = (path ?? '').trim();
   if (!value) return;
