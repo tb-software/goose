@@ -514,11 +514,16 @@ export const startGooseServe = async ({
 
       gooseProcess.once('close', finish);
 
-      logger.info('Terminating goose serve');
+      // TB-Software: ZUERST graceful beenden, damit goosed die SQLite (sessions.db, WAL-Modus) sauber
+      // schliesst/eincheckpointet und keine korrupten Zustaende entstehen. Erst wenn der Prozess nach
+      // einer kurzen Frist noch lebt, hart nachsetzen. Windows: 'taskkill /t' (ohne /f) bittet den
+      // Prozessbaum ums Beenden; Unix: SIGTERM. Fallback nach GRACE_MS: 'taskkill /f /t' bzw. SIGKILL.
+      const GRACE_MS = 3000;
+      logger.info('Terminating goose serve (graceful first)');
       try {
         if (process.platform === 'win32') {
           if (gooseProcess.pid) {
-            spawn('taskkill', ['/pid', gooseProcess.pid.toString(), '/f', '/t']);
+            spawn('taskkill', ['/pid', gooseProcess.pid.toString(), '/t']);
           }
         } else {
           gooseProcess.kill('SIGTERM');
@@ -528,11 +533,23 @@ export const startGooseServe = async ({
       }
 
       setTimeout(() => {
-        if (!exited && !gooseProcess.killed && process.platform !== 'win32') {
-          gooseProcess.kill('SIGKILL');
+        if (!exited && !gooseProcess.killed) {
+          logger.info('goose serve still running after grace period — forcing termination');
+          try {
+            if (process.platform === 'win32') {
+              if (gooseProcess.pid) {
+                spawn('taskkill', ['/pid', gooseProcess.pid.toString(), '/f', '/t']);
+              }
+            } else {
+              gooseProcess.kill('SIGKILL');
+            }
+          } catch (error) {
+            logger.error('Error while force-killing goose serve process:', error);
+          }
         }
-        finish();
-      }, 5000);
+        // Dem harten Kill noch kurz Zeit geben, dann aufloesen (nie laenger haengen bleiben).
+        setTimeout(finish, 1500);
+      }, GRACE_MS);
     });
   };
 

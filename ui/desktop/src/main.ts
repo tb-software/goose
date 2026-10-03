@@ -3596,6 +3596,32 @@ async function getAllowList(): Promise<string[]> {
   }
 }
 
+// TB-Software: Kontrolliertes Herunterfahren. Electron wartet NICHT auf asynchrone 'will-quit'-
+// Handler — ohne das hier wuerde der Backend-Cleanup (SQLite sauber schliessen) beim Beenden/
+// Windows-Neustart abgeschnitten und goosed haesslich hart gekillt (Korruptionsrisiko der
+// sessions.db). Darum den ERSTEN Quit kurz anhalten, das Backend graceful stoppen (mit hartem
+// Zeit-Cap, damit der Quit nie haengt), dann reaktivieren -> regulaerer Quit (will-quit laeuft).
+let tbGracefulShutdownStarted = false;
+app.on('before-quit', (event) => {
+  if (tbGracefulShutdownStarted) return;
+  if (gooseServeLeases.activeLeaseCount() === 0) return;
+  event.preventDefault();
+  tbGracefulShutdownStarted = true;
+  log.info('Graceful shutdown: stopping backend(s) cleanly before quit');
+  void (async () => {
+    try {
+      await Promise.race([
+        gooseServeLeases.cleanupAll(),
+        new Promise((resolve) => setTimeout(resolve, 8000)),
+      ]);
+    } catch (error) {
+      log.error('Graceful shutdown cleanup error:', error);
+    } finally {
+      app.quit();
+    }
+  })();
+});
+
 app.on('will-quit', async () => {
   // TB-Software: funktionierende Config beim Beenden rollierend sichern (nur wenn gültig+groß genug).
   backupConfigOnExit();
