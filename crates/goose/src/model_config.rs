@@ -118,6 +118,12 @@ fn apply_openai_request_params(mut model: ModelConfig) -> ModelConfig {
     model
 }
 
+// TB-Software: Die kuratierten TB-Routing-Tags (auto:code/auto:chat/auto:vision/auto:image und das
+// Platzhalter-"*"), die der gericom-Gateway serverseitig aufs passende Modell reroutet.
+fn is_tb_auto_model(model_name: &str) -> bool {
+    model_name.starts_with("auto:") || model_name == "*"
+}
+
 fn base_model_config_from_user_config(
     provider_name: &str,
     model_name: &str,
@@ -132,7 +138,16 @@ fn base_model_config_from_user_config(
         toolshim_model: get_goose_toolshim_model(config)?,
         request_params: None,
         reasoning: None,
-        supports_vision: None,
+        // TB-Software: Die auto:*-Routing-Tags (und "*") stehen NICHT im kanonischen Modellkatalog,
+        // darum bliebe supports_vision=None -> false, und der Payload-Bau ersetzt jedes Bild durch
+        // "[image omitted: model does not support vision]" (formats/openai.rs). Der gericom-Gateway
+        // reroutet Bild-Anfragen aber serverseitig auf ein VLM (per curl verifiziert). Darum Vision
+        // fuer die TB-Tags explizit deklarieren, damit Goose echte image_url-Bloecke sendet.
+        supports_vision: if is_tb_auto_model(model_name) {
+            Some(true)
+        } else {
+            None
+        },
         request_headers: None,
     };
     if provider_name != goose_providers::azure_foundry::AZURE_FOUNDRY_PROVIDER_NAME {
