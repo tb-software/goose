@@ -18,3 +18,6 @@ src/i18n/compiled/
 
 # TB-Software: registrierter Gateway-Client-Key (nicht committen; via extraResource gebuendelt)
 src/tb-defaults/gateway-key.txt
+
+# TB-Software: OpenAI-Key fuers Diktat (nicht committen; via extraResource gebuendelt)
+src/tb-defaults/openai-key.txt

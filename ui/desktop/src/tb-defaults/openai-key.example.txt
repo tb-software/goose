@@ -1,0 +1,3 @@
+# VORLAGE. Echte Datei: openai-key.txt (gitignoriert) mit dem OpenAI-Key (sk-proj-...).
+# Fehlt sie, faellt das Diktat auf den konfigurierten goosed-Provider zurueck.
+# sk-DEIN-OPENAI-KEY

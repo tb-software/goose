@@ -124,6 +124,11 @@ export const useAudioRecorder = ({ onTranscription, onError }: UseAudioRecorderO
   const providerRef = useRef(provider);
   providerRef.current = provider;
 
+  // TB-Software: Ist der gebuendelte OpenAI-Whisper (Main-Prozess, api.openai.com) verfuegbar?
+  // Wenn ja, wird er fuer die Transkription bevorzugt - Diktat funktioniert dann out-of-box ohne
+  // dass der Nutzer einen goosed-Provider konfiguriert.
+  const openaiAvailableRef = useRef(false);
+
   // TB-Software: Session-Autostop nach durchgehender Stille (aus Config, 0 = nur Button).
   const autoStopMsRef = useRef(0);
   const lastVoiceAtRef = useRef(0);
@@ -144,16 +149,29 @@ export const useAudioRecorder = ({ onTranscription, onError }: UseAudioRecorderO
         const sec = Number(secRaw) || 0;
         autoStopMsRef.current = sec > 0 ? sec * 1000 : 0;
 
+        // Gebuendelter OpenAI-Whisper verfuegbar? Dann Diktat out-of-box aktiv.
+        let openaiOk = false;
+        try {
+          openaiOk = (await window.electron.tbDictationAvailable()).available;
+        } catch {
+          openaiOk = false;
+        }
+        openaiAvailableRef.current = openaiOk;
+
         const val = await read('voice_dictation_provider', false);
         const pref = (val as DictationProvider) || null;
+        setProvider(pref);
+
+        if (openaiOk) {
+          setIsEnabled(true);
+          return;
+        }
         if (!pref) {
           setIsEnabled(false);
-          setProvider(null);
           return;
         }
         const providers = await getDictationConfig();
         setIsEnabled(!!providers[pref]?.configured);
-        setProvider(pref);
       } catch (error) {
         console.error('Failed to check dictation config:', error);
         setIsEnabled(false);
@@ -181,8 +199,9 @@ export const useAudioRecorder = ({ onTranscription, onError }: UseAudioRecorderO
 
   const transcribeChunk = useCallback(
     async (samples: Float32Array, generation: RecorderGeneration) => {
+      const useOpenAi = openaiAvailableRef.current;
       const prov = providerRef.current;
-      if (!prov || !isActiveGeneration(generation)) return;
+      if ((!useOpenAi && !prov) || !isActiveGeneration(generation)) return;
 
       generation.pendingTranscriptions++;
       setIsTranscribing(true);
@@ -192,7 +211,17 @@ export const useAudioRecorder = ({ onTranscription, onError }: UseAudioRecorderO
         const base64 = await blobToBase64(wav);
         if (!isActiveGeneration(generation)) return;
 
-        const text = await transcribeDictation(base64, 'audio/wav', prov);
+        let text = '';
+        if (useOpenAi) {
+          const r = await window.electron.tbDictationTranscribe(base64, 'audio/wav');
+          text = r?.ok ? r.text || '' : '';
+          // Faellt OpenAI aus und ist ein goosed-Provider konfiguriert, darueber versuchen.
+          if (!r?.ok && prov) {
+            text = await transcribeDictation(base64, 'audio/wav', prov);
+          }
+        } else if (prov) {
+          text = await transcribeDictation(base64, 'audio/wav', prov);
+        }
         if (text && isActiveGeneration(generation)) {
           onTranscriptionRef.current(text);
         }

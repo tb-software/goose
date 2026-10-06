@@ -30,7 +30,7 @@ import { checkBackendStatus } from './backendStatus';
 import { installBackendCertificateVerifiers } from './backendCertificateVerifier';
 import { configureProxy } from './proxy';
 import { startGooseServe } from './gooseServe';
-import { ensureTbDefaults } from './tb/bootstrapDefaults';
+import { ensureTbDefaults, tbDefaultsDir } from './tb/bootstrapDefaults';
 import { registerRiskConsentIpc } from './tb/consent/riskConsent';
 import { registerTbTagsIpc } from './tb/tags/tbTags';
 import { registerTbWolkeIpc } from './tb/wolke/tbWolke';
@@ -3409,6 +3409,66 @@ async function appMain() {
       return { ok: false, text, error: (error as Error).message };
     }
   });
+
+  // TB-Software: Mikrofon-Diktat-Transkription ueber OpenAI Whisper (api.openai.com). Der Key ist
+  // gebuendelt in resources/tb-defaults/openai-key.txt (gitignoriert). So funktioniert das Diktat
+  // out-of-box flottenweit, ohne dass der Nutzer einen STT-Provider konfigurieren muss. Fehlt der Key,
+  // meldet tb-dictation-available false -> der Recorder faellt auf den goosed-Provider zurueck.
+  const readOpenAiDictationKey = async (): Promise<string | null> => {
+    try {
+      const raw = await fs.readFile(path.join(tbDefaultsDir(), 'openai-key.txt'), 'utf8');
+      for (const line of raw.split(/\r?\n/)) {
+        const t = line.trim();
+        if (t && !t.startsWith('#')) return t;
+      }
+    } catch {
+      /* kein Key gebuendelt */
+    }
+    return null;
+  };
+
+  ipcMain.handle('tb-dictation-available', async () => {
+    return { available: !!(await readOpenAiDictationKey()) };
+  });
+
+  ipcMain.handle(
+    'tb-dictation-transcribe',
+    async (_event, base64: string, mimeType: string) => {
+      const key = await readOpenAiDictationKey();
+      if (!key) return { ok: false, text: '', error: 'no_key' };
+      try {
+        const buf = Buffer.from(base64 ?? '', 'base64');
+        if (buf.length === 0) return { ok: true, text: '' };
+        const form = new FormData();
+        form.append('file', new Blob([buf], { type: mimeType || 'audio/wav' }), 'audio.wav');
+        form.append('model', 'whisper-1');
+        form.append('language', 'de');
+        form.append('response_format', 'text');
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 30000);
+        const resp = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+          method: 'POST',
+          signal: ctrl.signal,
+          headers: { Authorization: `Bearer ${key}` },
+          body: form,
+        });
+        clearTimeout(timer);
+        if (!resp.ok) return { ok: false, text: '', error: `HTTP ${resp.status}` };
+        let text = (await resp.text()).trim();
+        // Bekannte Whisper-Halluzinationen bei (Fast-)Stille entfernen.
+        if (
+          /amara\.org/i.test(text) ||
+          /untertitel(ung)? (des|der|im auftrag)/i.test(text) ||
+          /^(vielen dank\.?|untertitel\.?|\.|\s)*$/i.test(text)
+        ) {
+          text = '';
+        }
+        return { ok: true, text };
+      } catch (error) {
+        return { ok: false, text: '', error: (error as Error).message };
+      }
+    }
+  );
 
   // TB-Software: Datei fuer das Vorschau-Panel ueberwachen -> bei Aenderung auf der
   // Platte 'tb-file-changed' senden, damit die Vorschau automatisch neu laedt.

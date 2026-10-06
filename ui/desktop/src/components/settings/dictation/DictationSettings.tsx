@@ -292,27 +292,31 @@ export const DictationSettings = () => {
             </div>
           )}
 
-          <MicrophoneSelector selectedDeviceId={preferredMic} onDeviceChange={handleMicChange} />
-
-          {/* TB-Software: Automatisch beenden nach Sprechpause (oder nur per Mikrofon-Knopf). */}
-          <div className="space-y-1">
-            <label className="text-sm font-medium text-text-primary">Automatisch beenden</label>
-            <p className="text-xs text-text-secondary">
-              Diktat nach einer Sprechpause selbst beenden, oder nur per Mikrofon-Knopf.
-            </p>
-            <select
-              className="max-w-md w-full rounded-md border border-border-primary bg-background-primary px-2 py-1.5 text-sm text-text-primary"
-              value={autostopSeconds}
-              onChange={(e) => handleAutostopChange(Number(e.target.value))}
-            >
-              <option value={0}>Nur per Mikrofon-Knopf</option>
-              <option value={2}>Nach 2 s Stille beenden</option>
-              <option value={3}>Nach 3 s Stille beenden</option>
-              <option value={5}>Nach 5 s Stille beenden</option>
-            </select>
-          </div>
         </>
       )}
+
+      {/* TB-Software: Mikrofon + Autostop gelten auch fuer den gebuendelten OpenAI-Whisper - das Diktat
+          funktioniert out-of-box, auch wenn oben kein eigener Provider gewaehlt ist. */}
+      <p className="text-xs text-text-secondary px-2">
+        Diktat ist einsatzbereit (OpenAI Whisper, Deutsch) - ein eigener Provider oben ist optional.
+      </p>
+      <MicrophoneSelector selectedDeviceId={preferredMic} onDeviceChange={handleMicChange} />
+      <div className="space-y-1 px-2">
+        <label className="text-sm font-medium text-text-primary">Automatisch beenden</label>
+        <p className="text-xs text-text-secondary">
+          Diktat nach einer Sprechpause selbst beenden, oder nur per Mikrofon-Knopf.
+        </p>
+        <select
+          className="max-w-md w-full rounded-md border border-border-primary bg-background-primary px-2 py-1.5 text-sm text-text-primary"
+          value={autostopSeconds}
+          onChange={(e) => handleAutostopChange(Number(e.target.value))}
+        >
+          <option value={0}>Nur per Mikrofon-Knopf</option>
+          <option value={2}>Nach 2 s Stille beenden</option>
+          <option value={3}>Nach 3 s Stille beenden</option>
+          <option value={5}>Nach 5 s Stille beenden</option>
+        </select>
+      </div>
     </div>
   );
 };
