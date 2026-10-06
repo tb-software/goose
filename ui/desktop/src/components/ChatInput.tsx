@@ -278,6 +278,10 @@ export default function ChatInput({
   const dictationBufferRef = useRef('');
   const dictationAutoSubmitRef = useRef(false);
   const wasRecordingRef = useRef(false);
+  // TB-Software: Nach dem Diktat (per Stille-Autostop) ein abbrechbarer Countdown -> dann Senden.
+  const [autoSendCountdown, setAutoSendCountdown] = useState<number | null>(null);
+  const autoSendIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const autoSendTextRef = useRef('');
   const [isFocused, setIsFocused] = useState(false);
   const [pastedImages, setPastedImages] = useState<PastedImage[]>([]);
   const [isFilePickerOpen, setIsFilePickerOpen] = useState(false);
@@ -537,6 +541,8 @@ export default function ChatInput({
     isTranscribing,
     startRecording,
     stopRecording,
+    autoSendSeconds,
+    lastStopWasAutoRef,
   } = useAudioRecorder({
     onTranscription: (text) => {
       trackVoiceDictation('transcribed');
@@ -576,6 +582,40 @@ export default function ChatInput({
   const internalTextAreaRef = useRef<HTMLTextAreaElement>(null);
   const textAreaRef = inputRef || internalTextAreaRef;
   const timeoutRefsRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+
+  // TB-Software: Abbrechbarer Auto-Senden-Countdown nach dem Diktat.
+  const cancelAutoSend = () => {
+    if (autoSendIntervalRef.current) {
+      clearInterval(autoSendIntervalRef.current);
+      autoSendIntervalRef.current = null;
+    }
+    setAutoSendCountdown(null);
+  };
+  const startAutoSend = (seconds: number, text: string) => {
+    cancelAutoSend();
+    autoSendTextRef.current = text;
+    setAutoSendCountdown(seconds);
+    autoSendIntervalRef.current = setInterval(() => {
+      setAutoSendCountdown((prev) => {
+        if (prev === null) return null;
+        if (prev <= 1) {
+          if (autoSendIntervalRef.current) {
+            clearInterval(autoSendIntervalRef.current);
+            autoSendIntervalRef.current = null;
+          }
+          const toSend = autoSendTextRef.current;
+          setTimeout(() => {
+            if (toSend.trim()) {
+              trackVoiceDictation('auto_submit');
+              performSubmit(toSend);
+            }
+          }, 0);
+          return null;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  };
 
   // TB-Software: Diktat finalisieren, sobald die Aufnahme beendet ist (Button oder Autostop) UND die
   // letzte Chunk-Transkription durch ist: gesammelten Text per kleiner KI korrigieren und in NEUER
@@ -621,8 +661,13 @@ export default function ChatInput({
       setDictationLive('');
 
       if (autoSubmit && combined.trim()) {
+        // "submit" am Ende -> sofort senden (ohne Countdown).
         trackVoiceDictation('auto_submit');
         setTimeout(() => performSubmit(combined), 100);
+      } else if (autoSendSeconds > 0 && lastStopWasAutoRef.current && combined.trim()) {
+        // Nach Stille-Autostop: abbrechbarer Countdown, dann automatisch senden.
+        textAreaRef.current?.focus();
+        startAutoSend(autoSendSeconds, combined);
       } else {
         textAreaRef.current?.focus();
       }
@@ -630,6 +675,17 @@ export default function ChatInput({
     // Nur auf die Aufnahme-/Transkriptions-Zustaende reagieren; Feldwert via Ref (kein Re-Run bei Tippen).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isRecording, isTranscribing]);
+
+  // TB-Software: Auto-Senden-Countdown beenden, sobald eine neue Aufnahme startet, und beim Unmount.
+  useEffect(() => {
+    if (isRecording) cancelAutoSend();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isRecording]);
+  useEffect(() => {
+    return () => {
+      if (autoSendIntervalRef.current) clearInterval(autoSendIntervalRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     // The draft is restored here rather than through `initialValue`, because this
@@ -862,6 +918,9 @@ export default function ChatInput({
   const handleChange = (evt: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = evt.target.value;
     const cursorPosition = evt.target.selectionStart;
+
+    // TB-Software: Tippen bricht den Auto-Senden-Countdown ab (der Nutzer will editieren).
+    if (autoSendIntervalRef.current) cancelAutoSend();
 
     applyInputValue(val);
     setHasUserTyped(true);
@@ -1668,6 +1727,18 @@ export default function ChatInput({
           >
             {dictationLive || (dictationCorrecting ? '' : 'Sprich jetzt …')}
           </div>
+        </div>
+      )}
+
+      {/* TB-Software: Abbrechbarer Auto-Senden-Countdown nach dem Diktat. */}
+      {autoSendCountdown !== null && (
+        <div className="fixed left-1/2 -translate-x-1/2 bottom-32 z-[1000] w-[min(680px,90vw)] rounded-xl border border-border-primary bg-background-primary shadow-lg p-3 flex items-center justify-between gap-3">
+          <span className="text-sm text-text-primary">
+            Automatisch senden in {autoSendCountdown} s …
+          </span>
+          <Button type="button" variant="outline" size="sm" onClick={cancelAutoSend}>
+            Abbrechen
+          </Button>
         </div>
       )}
 

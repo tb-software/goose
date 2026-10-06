@@ -110,6 +110,10 @@ export const useAudioRecorder = ({ onTranscription, onError }: UseAudioRecorderO
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [isEnabled, setIsEnabled] = useState(false);
   const [provider, setProvider] = useState<DictationProvider | null>(null);
+  // TB-Software: Sekunden fuers "nach Diktat automatisch senden" (0 = aus). Der abbrechbare Countdown
+  // laeuft im ChatInput; hier wird nur die Einstellung gelesen + ob per Stille-Autostop beendet wurde.
+  const [autoSendSeconds, setAutoSendSeconds] = useState(0);
+  const lastStopWasAutoRef = useRef(false);
 
   const { read, config } = useConfig();
 
@@ -148,6 +152,9 @@ export const useAudioRecorder = ({ onTranscription, onError }: UseAudioRecorderO
         const secRaw = await read('voice_dictation_autostop_seconds', false);
         const sec = Number(secRaw) || 0;
         autoStopMsRef.current = sec > 0 ? sec * 1000 : 0;
+
+        const autoSendRaw = await read('voice_dictation_autosend_seconds', false);
+        setAutoSendSeconds(Number(autoSendRaw) || 0);
 
         // Gebuendelter OpenAI-Whisper verfuegbar? Dann Diktat out-of-box aktiv.
         let openaiOk = false;
@@ -317,6 +324,9 @@ export const useAudioRecorder = ({ onTranscription, onError }: UseAudioRecorderO
   }, [resetSpeech]);
 
   const stopRecording = useCallback(() => {
+    // Merken, ob dieser Stop vom Stille-Autostop kam (dann darf im ChatInput der Auto-Senden-Countdown
+    // laufen) oder vom Nutzer per Knopf (dann nicht).
+    lastStopWasAutoRef.current = stopRequestedRef.current;
     const finalChunks = isSpeakingRef.current ? samplesRef.current : [];
     cancelActiveGeneration();
 
@@ -442,5 +452,7 @@ export const useAudioRecorder = ({ onTranscription, onError }: UseAudioRecorderO
     isTranscribing,
     startRecording,
     stopRecording,
+    autoSendSeconds,
+    lastStopWasAutoRef,
   };
 };

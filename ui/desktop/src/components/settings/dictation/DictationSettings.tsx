@@ -94,6 +94,9 @@ export const DictationSettings = () => {
   const [isEditingKey, setIsEditingKey] = useState(false);
   // TB-Software: Automatisches Beenden nach X Sekunden Stille (0 = nur per Mikrofon-Knopf).
   const [autostopSeconds, setAutostopSeconds] = useState(0);
+  // TB-Software: Nach dem Diktat (per Stille-Autostop) automatisch senden - abbrechbarer Countdown
+  // in X Sekunden (0 = aus).
+  const [autosendSeconds, setAutosendSeconds] = useState(0);
   const { read, upsert, remove } = useConfig();
 
   const refreshStatuses = async () => {
@@ -130,6 +133,9 @@ export const DictationSettings = () => {
       const autostopValue = await read('voice_dictation_autostop_seconds', false);
       setAutostopSeconds(Number(autostopValue) || 0);
 
+      const autosendValue = await read('voice_dictation_autosend_seconds', false);
+      setAutosendSeconds(Number(autosendValue) || 0);
+
       await refreshStatuses();
     };
 
@@ -151,6 +157,11 @@ export const DictationSettings = () => {
   const handleAutostopChange = (seconds: number) => {
     setAutostopSeconds(seconds);
     upsert('voice_dictation_autostop_seconds', String(seconds), false);
+  };
+
+  const handleAutosendChange = (seconds: number) => {
+    setAutosendSeconds(seconds);
+    upsert('voice_dictation_autosend_seconds', String(seconds), false);
   };
 
   const handleSaveKey = async () => {
@@ -315,6 +326,24 @@ export const DictationSettings = () => {
           <option value={2}>Nach 2 s Stille beenden</option>
           <option value={3}>Nach 3 s Stille beenden</option>
           <option value={5}>Nach 5 s Stille beenden</option>
+        </select>
+      </div>
+
+      <div className="space-y-1 px-2">
+        <label className="text-sm font-medium text-text-primary">Nach Diktat automatisch senden</label>
+        <p className="text-xs text-text-secondary">
+          Wenn das Diktat per Stille automatisch endet: der Text landet im Feld und wird nach einem
+          kurzen, abbrechbaren Countdown automatisch gesendet. (Tippen oder „Abbrechen" stoppt den
+          Countdown.)
+        </p>
+        <select
+          className="max-w-md w-full rounded-md border border-border-primary bg-background-primary px-2 py-1.5 text-sm text-text-primary"
+          value={autosendSeconds}
+          onChange={(e) => handleAutosendChange(Number(e.target.value))}
+        >
+          <option value={0}>Aus (nur ins Feld legen)</option>
+          <option value={3}>Nach 3 s automatisch senden</option>
+          <option value={5}>Nach 5 s automatisch senden</option>
         </select>
       </div>
     </div>
