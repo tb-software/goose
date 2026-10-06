@@ -21,7 +21,7 @@ import LoadingGoose from './LoadingGoose';
 import { getModelDisplayName } from './settings/models/predefinedModelsUtils';
 import { deriveMessageRowContexts, type MessageRowContext } from './messageRowContext';
 import { identifyConsecutiveToolCalls } from '../utils/toolCallChaining';
-import { getToolRequests, getToolResponses } from '../types/message';
+import { getToolRequests, getToolResponses, getTextAndImageContent } from '../types/message';
 import ActivityTree from './ActivityTree';
 import {
   collectProgressBoxes,
@@ -104,6 +104,7 @@ interface MessageRowProps {
     editType: 'fork' | 'edit',
     retainedImages: ImageData[]
   ) => void;
+  regenerateText?: string;
   rowContext: MessageRowContext;
   sessionId: string;
   submitElicitationResponse?: (
@@ -121,6 +122,7 @@ function MessageRowComponent({
   message,
   modelChangeMessage,
   onMessageUpdate,
+  regenerateText,
   rowContext,
   sessionId,
   submitElicitationResponse,
@@ -169,6 +171,7 @@ function MessageRowComponent({
             toolConfirmationShownInline={rowContext.toolConfirmationShownInline}
             append={append}
             isStreaming={isStreaming}
+            regenerateText={regenerateText}
             submitElicitationResponse={submitElicitationResponse}
           />
         )}
@@ -297,11 +300,25 @@ export default function ProgressiveMessageList({
         toolCallNotifications.get(toolState.requestId)
       );
 
+      // TB-Software: „Nochmals" nur an der letzten Antwort - stellt die vorausgehende User-Frage erneut.
+      let regenerateText: string | undefined;
+      if (index === messagesToRender.length - 1 && !isUser && message.role === 'assistant') {
+        for (let i = index - 1; i >= 0; i--) {
+          const prev = messagesToRender[i];
+          if (prev.role === 'user') {
+            const t = getTextAndImageContent(prev).textContent.trim();
+            if (t) regenerateText = t;
+            break;
+          }
+        }
+      }
+
       return (
         <MessageRow
           key={messageKey}
           append={append}
           index={index}
+          regenerateText={regenerateText}
           isStreaming={
             isStreamingMessage &&
             !isUser &&

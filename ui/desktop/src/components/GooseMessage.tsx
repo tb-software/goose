@@ -1,5 +1,7 @@
-import { memo, useMemo, useRef } from 'react';
+import { memo, useEffect, useMemo, useRef } from 'react';
 import { AlertTriangle } from 'lucide-react';
+import { tbSpeech } from '../tb/voice/speechOutput';
+import { TbSpeakButton } from '../tb/voice/TbSpeakButton';
 import ImagePreview from './ImagePreview';
 import { formatMessageTimestamp } from '../utils/timeUtils';
 import MarkdownContent from './MarkdownContent';
@@ -18,6 +20,7 @@ import ToolCallConfirmation from './ToolCallConfirmation';
 import ElicitationRequest from './ElicitationRequest';
 import MessageCopyLink from './MessageCopyLink';
 import MessageUsageStats from './MessageUsageStats';
+import { RotateCcw } from 'lucide-react';
 import { cn } from '../utils';
 import type { ToolRenderState } from './messageRowContext';
 import {
@@ -37,6 +40,9 @@ interface GooseMessageProps {
   toolConfirmationShownInline: boolean;
   append: (value: string) => void;
   isStreaming: boolean;
+  // TB-Software: Text der vorausgehenden User-Nachricht; gesetzt nur fuer die letzte Antwort,
+  // damit „Nochmals" diese Frage erneut stellen kann.
+  regenerateText?: string;
   submitElicitationResponse?: (
     elicitationId: string,
     userData: Record<string, unknown>
@@ -52,6 +58,7 @@ function GooseMessage({
   toolConfirmationShownInline,
   append,
   isStreaming,
+  regenerateText,
   submitElicitationResponse,
 }: GooseMessageProps) {
   const contentRef = useRef<HTMLDivElement | null>(null);
@@ -63,9 +70,30 @@ function GooseMessage({
   const displayText = isOutputTokenLimitFallback ? '' : textContent;
   const imagePaths = isOutputTokenLimitFallback ? [] : allImagePaths;
   const thinkingContent = isOutputTokenLimitFallback ? null : getThinkingContent(message);
+  const messageId = message.id ?? String(message.created);
 
   const timestamp = useMemo(() => formatMessageTimestamp(message.created), [message.created]);
   const toolRequests = getToolRequests(message);
+
+  // TB-Software: Im Gespraechsmodus frisch eingetroffene Antworten automatisch vorlesen und
+  // danach wieder das Zuhoeren starten (voller Sprachkreis). Nur reine Textantworten, und nur
+  // kuerzlich erstellte - damit beim Laden der History nicht alles vorgelesen wird.
+  const isTextOnlyMessage = message.content.every((content) => content.type === 'text');
+  useEffect(() => {
+    if (isStreaming || !isTextOnlyMessage) return;
+    const text = displayText.trim();
+    if (!text || !tbSpeech.isConversation()) return;
+    const ageMs = Date.now() - (message.created ?? 0) * 1000;
+    if (ageMs > 15000) return;
+    if (!tbSpeech.claimAutoSpeak(messageId)) return;
+    tbSpeech.speak(messageId, text, () => {
+      try {
+        window.dispatchEvent(new CustomEvent('tb:voice-listen'));
+      } catch {
+        /* ignore */
+      }
+    });
+  }, [isStreaming, isTextOnlyMessage, displayText, messageId, message.created]);
   const shouldThrottleStreamingText =
     isStreaming && displayText.length > 0 && toolRequests.length === 0 && imagePaths.length === 0;
   const streamingRenderCooldownMs =
@@ -131,8 +159,23 @@ function GooseMessage({
                   </div>
                 )}
                 {message.content.every((content) => content.type === 'text') && !isStreaming && (
-                  <div className="absolute left-0 pt-1">
+                  <div className="absolute left-0 pt-1 flex items-center gap-1">
                     <MessageCopyLink text={displayText} contentRef={contentRef} />
+                    <TbSpeakButton messageId={messageId} text={displayText} />
+                    {regenerateText && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          tbSpeech.stop();
+                          append(regenerateText);
+                        }}
+                        title="Antwort nochmals erzeugen"
+                        aria-label="Antwort nochmals erzeugen"
+                        className="flex items-center text-text-secondary hover:text-text-primary transition-colors p-1 rounded-md hover:bg-background-secondary"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
                 )}
                 {!isStreaming && message.metadata.usage && (

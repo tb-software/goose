@@ -26,6 +26,8 @@ import { AlertType, useAlerts } from './alerts';
 import { useModelAndProvider } from './ModelAndProviderContext';
 import { acpGetProviderDetails } from '../acp/providers';
 import { useAudioRecorder } from '../hooks/useAudioRecorder';
+import { useConfig } from './ConfigContext';
+import { tbSpeech } from '../tb/voice/speechOutput';
 import { useFocusOnTyping } from '../hooks/useFocusOnTyping';
 import { toastError } from '../toasts';
 import MentionPopover, { DisplayItemWithMatch } from './MentionPopover';
@@ -582,6 +584,48 @@ export default function ChatInput({
   const internalTextAreaRef = useRef<HTMLTextAreaElement>(null);
   const textAreaRef = inputRef || internalTextAreaRef;
   const timeoutRefsRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+
+  // TB-Software: Sprachausgabe/Gespraechsmodus-Einstellungen in den TTS-Controller laden.
+  const { read: readVoiceConfig } = useConfig();
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const conv = await readVoiceConfig('voice_output_conversation', false);
+        const voice = await readVoiceConfig('voice_output_voice', false);
+        const rate = await readVoiceConfig('voice_output_rate', false);
+        if (cancelled) return;
+        tbSpeech.configure({
+          conversation: String(conv) === '1' || conv === true,
+          voiceURI: (voice as string) || '',
+          rate: Number(rate) || 1.15,
+        });
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [readVoiceConfig]);
+
+  // TB-Software: Gespraechsmodus - nach dem Vorlesen automatisch wieder zuhoeren (voller Sprachkreis).
+  const isRecordingRef = useRef(isRecording);
+  isRecordingRef.current = isRecording;
+  const isEnabledRef = useRef(isEnabled);
+  isEnabledRef.current = isEnabled;
+  useEffect(() => {
+    const onListen = () => {
+      if (!tbSpeech.isConversation() || !isEnabledRef.current || isRecordingRef.current) return;
+      try {
+        startRecording();
+      } catch {
+        /* ignore */
+      }
+    };
+    window.addEventListener('tb:voice-listen', onListen);
+    return () => window.removeEventListener('tb:voice-listen', onListen);
+  }, [startRecording]);
 
   // TB-Software: Abbrechbarer Auto-Senden-Countdown nach dem Diktat.
   const cancelAutoSend = () => {

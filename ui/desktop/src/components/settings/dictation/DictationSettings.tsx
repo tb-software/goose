@@ -1,3 +1,4 @@
+/* global SpeechSynthesisVoice */
 import { useState, useEffect } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { getDictationConfig, DictationProviderStatusEntry } from '../../../acp/dictation';
@@ -18,6 +19,7 @@ import {
   DropdownMenuTrigger,
 } from '../../ui/dropdown-menu';
 import { defineMessages, useIntl } from '../../../i18n';
+import { tbSpeech } from '../../../tb/voice/speechOutput';
 
 const i18n = defineMessages({
   voiceDictationProvider: {
@@ -97,7 +99,19 @@ export const DictationSettings = () => {
   // TB-Software: Nach dem Diktat (per Stille-Autostop) automatisch senden - abbrechbarer Countdown
   // in X Sekunden (0 = aus).
   const [autosendSeconds, setAutosendSeconds] = useState(0);
+  // TB-Software: Sprachausgabe (TTS) - Gespraechsmodus, Stimme, Tempo.
+  const [conversationMode, setConversationMode] = useState(false);
+  const [voiceURI, setVoiceURI] = useState('');
+  const [speechRate, setSpeechRate] = useState(1.15);
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const { read, upsert, remove } = useConfig();
+
+  useEffect(() => {
+    const refresh = () => setVoices(tbSpeech.listVoices());
+    refresh();
+    const unsub = tbSpeech.subscribe(refresh);
+    return unsub;
+  }, []);
 
   const refreshStatuses = async () => {
     const audioConfig = await getDictationConfig();
@@ -136,6 +150,20 @@ export const DictationSettings = () => {
       const autosendValue = await read('voice_dictation_autosend_seconds', false);
       setAutosendSeconds(Number(autosendValue) || 0);
 
+      const convValue = await read('voice_output_conversation', false);
+      const conv = String(convValue) === '1' || convValue === true;
+      setConversationMode(conv);
+
+      const voiceValue = await read('voice_output_voice', false);
+      const voiceStr = (voiceValue as string) || '';
+      setVoiceURI(voiceStr);
+
+      const rateValue = await read('voice_output_rate', false);
+      const rate = Number(rateValue) || 1.15;
+      setSpeechRate(rate);
+
+      tbSpeech.configure({ conversation: conv, voiceURI: voiceStr, rate });
+
       await refreshStatuses();
     };
 
@@ -162,6 +190,28 @@ export const DictationSettings = () => {
   const handleAutosendChange = (seconds: number) => {
     setAutosendSeconds(seconds);
     upsert('voice_dictation_autosend_seconds', String(seconds), false);
+  };
+
+  const handleConversationChange = (enabled: boolean) => {
+    setConversationMode(enabled);
+    tbSpeech.configure({ conversation: enabled });
+    upsert('voice_output_conversation', enabled ? '1' : '0', false);
+  };
+
+  const handleVoiceChange = (uri: string) => {
+    setVoiceURI(uri);
+    tbSpeech.configure({ voiceURI: uri });
+    upsert('voice_output_voice', uri, false);
+  };
+
+  const handleRateChange = (rate: number) => {
+    setSpeechRate(rate);
+    tbSpeech.configure({ rate });
+    upsert('voice_output_rate', String(rate), false);
+  };
+
+  const handleTestVoice = () => {
+    tbSpeech.toggle('__settings_test__', 'Hallo, so klingt die gewählte Stimme von TB-Goose.');
   };
 
   const handleSaveKey = async () => {
@@ -345,6 +395,72 @@ export const DictationSettings = () => {
           <option value={3}>Nach 3 s automatisch senden</option>
           <option value={5}>Nach 5 s automatisch senden</option>
         </select>
+      </div>
+
+      {/* TB-Software: Sprachausgabe (Vorlesen + Gespraechsmodus) ueber lokale OS-Stimmen. */}
+      <div className="pt-2 mt-2 border-t border-border-primary">
+        <h3 className="text-text-primary px-2">Sprachausgabe (Vorlesen)</h3>
+        <p className="text-xs text-text-secondary px-2 mt-[2px]">
+          Antworten werden mit der lokalen Stimme deines Systems vorgelesen - offline, ohne
+          Netzverbindung. Jede Antwort hat dafür einen „Vorlesen"-Knopf.
+        </p>
+      </div>
+
+      <div className="flex items-center justify-between py-2 px-2 hover:bg-background-secondary rounded-lg transition-all">
+        <div>
+          <label className="text-sm font-medium text-text-primary">Gesprächsmodus</label>
+          <p className="text-xs text-text-secondary max-w-md mt-[2px]">
+            Fertige Antworten automatisch vorlesen und danach sofort wieder zuhören - freihändiges
+            Gespräch zusammen mit dem Diktat.
+          </p>
+        </div>
+        <input
+          type="checkbox"
+          className="h-4 w-4"
+          checked={conversationMode}
+          onChange={(e) => handleConversationChange(e.target.checked)}
+        />
+      </div>
+
+      <div className="space-y-1 px-2">
+        <label className="text-sm font-medium text-text-primary">Stimme</label>
+        <div className="flex gap-2 items-center max-w-md">
+          <select
+            className="w-full rounded-md border border-border-primary bg-background-primary px-2 py-1.5 text-sm text-text-primary"
+            value={voiceURI}
+            onChange={(e) => handleVoiceChange(e.target.value)}
+          >
+            <option value="">Automatisch (weibliche deutsche Stimme)</option>
+            {voices.map((v) => (
+              <option key={v.voiceURI} value={v.voiceURI}>
+                {v.name} ({v.lang})
+              </option>
+            ))}
+          </select>
+          <Button variant="outline" size="sm" onClick={handleTestVoice}>
+            Testen
+          </Button>
+        </div>
+        {voices.length === 0 && (
+          <p className="text-xs text-text-secondary">
+            Keine Stimmen gefunden - Windows stellt die deutschen Stimmen unter „Sprache" bereit.
+          </p>
+        )}
+      </div>
+
+      <div className="space-y-1 px-2 pb-2">
+        <label className="text-sm font-medium text-text-primary">
+          Sprechtempo ({speechRate.toFixed(2)}×)
+        </label>
+        <input
+          type="range"
+          min={0.8}
+          max={1.6}
+          step={0.05}
+          value={speechRate}
+          onChange={(e) => handleRateChange(Number(e.target.value))}
+          className="max-w-md w-full"
+        />
       </div>
     </div>
   );
