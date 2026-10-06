@@ -3350,6 +3350,66 @@ async function appMain() {
     }
   });
 
+  // TB-Software: Diktat-Nachkorrektur durch ein kleines, schnelles Modell ueber den gericom-Gateway
+  // (auto:chat). Korrigiert Erkennungsfehler/Zeichensetzung des deutschen Whisper-Diktats, OHNE Inhalt
+  // zu veraendern. Laeuft im Main-Prozess, weil hier der Gateway-Endpunkt + sk-Key (process.env) liegen.
+  // Bei jedem Fehler/Timeout liefert der Aufrufer den Rohtext weiter (nie blockieren).
+  ipcMain.handle('tb-dictation-correct', async (_event, rawText: string) => {
+    const text = (rawText ?? '').trim();
+    if (!text) return { ok: true, text: '' };
+    try {
+      const host = (process.env.OPENAI_HOST || 'https://t78.ch').replace(/\/+$/, '');
+      const path =
+        process.env.OPENAI_BASE_PATH || 'apps/proxy/gericom/jumpserver.ashx/v1/chat/completions';
+      const url = `${host}/${path.replace(/^\/+/, '')}`;
+      const key = process.env.OPENAI_API_KEY || 'none';
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 20000);
+      const resp = await fetch(url, {
+        method: 'POST',
+        signal: ctrl.signal,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${key}`,
+          'X-Title': 'TB-Goose',
+          'X-Client': 'TB-Goose',
+          'X-Client-Site': 'gericom',
+        },
+        body: JSON.stringify({
+          model: 'auto:chat',
+          max_tokens: 1200,
+          messages: [
+            {
+              role: 'system',
+              content:
+                'Du korrigierst deutsche Sprach-Diktate. Verbessere nur Erkennungs-/Tippfehler, ' +
+                'Gross-/Kleinschreibung und Zeichensetzung. Aendere NICHT den Inhalt, Stil oder die ' +
+                'Wortwahl, erfinde nichts, kuerze nicht. Gib AUSSCHLIESSLICH den korrigierten Text ' +
+                'zurueck - ohne Anfuehrungszeichen, ohne Kommentar, ohne Einleitung.',
+            },
+            { role: 'user', content: text },
+          ],
+        }),
+      });
+      clearTimeout(timer);
+      if (!resp.ok) return { ok: false, text, error: `HTTP ${resp.status}` };
+      const data = (await resp.json()) as {
+        choices?: { message?: { content?: string } }[];
+      };
+      let out = (data.choices?.[0]?.message?.content ?? '').trim();
+      // Modelle packen den Text gelegentlich in Anfuehrungszeichen/Codeblock - abstreifen.
+      out = out
+        .replace(/^```[a-zA-Z]*\s*/, '')
+        .replace(/\s*```$/, '')
+        .replace(/^["'„»]+/, '')
+        .replace(/["'“«]+$/, '')
+        .trim();
+      return { ok: true, text: out || text };
+    } catch (error) {
+      return { ok: false, text, error: (error as Error).message };
+    }
+  });
+
   // TB-Software: Datei fuer das Vorschau-Panel ueberwachen -> bei Aenderung auf der
   // Platte 'tb-file-changed' senden, damit die Vorschau automatisch neu laedt.
   // fsSync.watchFile (Polling per Stat) statt watch, weil es atomare Editor-Replaces

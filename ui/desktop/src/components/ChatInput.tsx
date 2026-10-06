@@ -269,6 +269,15 @@ export default function ChatInput({
 }: ChatInputProps) {
   const [_value, setValue] = useState(initialValue);
   const [displayValue, setDisplayValue] = useState(initialValue); // For immediate visual feedback
+  const displayValueRef = useRef(displayValue);
+  displayValueRef.current = displayValue;
+  // TB-Software: Diktat-Flow. Waehrend der Aufnahme wird fortlaufend gesammelt + im Popup gezeigt;
+  // beim Beenden (Button ODER Autostop) per kleiner KI korrigiert und in NEUER ZEILE angefuegt.
+  const [dictationLive, setDictationLive] = useState('');
+  const [dictationCorrecting, setDictationCorrecting] = useState(false);
+  const dictationBufferRef = useRef('');
+  const dictationAutoSubmitRef = useRef(false);
+  const wasRecordingRef = useRef(false);
   const [isFocused, setIsFocused] = useState(false);
   const [pastedImages, setPastedImages] = useState<PastedImage[]>([]);
   const [isFilePickerOpen, setIsFilePickerOpen] = useState(false);
@@ -532,33 +541,28 @@ export default function ChatInput({
     onTranscription: (text) => {
       trackVoiceDictation('transcribed');
 
-      let filteredText = text.replace(/\([^)]*\)/g, '').trim();
-
+      const filteredText = text.replace(/\([^)]*\)/g, '').trim();
       if (!filteredText) {
         return;
       }
 
+      // "submit" am Ende -> nach dem Beenden automatisch absenden (Wort entfernen).
       const shouldAutoSubmit = /\bsubmit[.,!?;'"\s]*$/i.test(filteredText);
-
       const cleanedText = shouldAutoSubmit
         ? filteredText.replace(/\bsubmit[.,!?;'"\s]*$/i, '').trim()
         : filteredText;
-
-      const newValue =
-        displayValue.trim() && cleanedText
-          ? `${displayValue.trim()} ${cleanedText}`
-          : displayValue.trim() || cleanedText;
-
-      applyInputValue(newValue);
-
-      if (shouldAutoSubmit && newValue.trim()) {
-        trackVoiceDictation('auto_submit');
-        setTimeout(() => {
-          performSubmit(newValue);
-        }, 100);
-      } else {
-        textAreaRef.current?.focus();
+      if (shouldAutoSubmit) {
+        dictationAutoSubmitRef.current = true;
       }
+      if (!cleanedText) {
+        return;
+      }
+
+      // Fortlaufend sammeln (noch NICHT ins Eingabefeld) + Live-Popup aktualisieren.
+      dictationBufferRef.current = dictationBufferRef.current
+        ? `${dictationBufferRef.current} ${cleanedText}`
+        : cleanedText;
+      setDictationLive(dictationBufferRef.current);
     },
     onError: (message) => {
       const errorType = 'DictationError';
@@ -572,6 +576,60 @@ export default function ChatInput({
   const internalTextAreaRef = useRef<HTMLTextAreaElement>(null);
   const textAreaRef = inputRef || internalTextAreaRef;
   const timeoutRefsRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+
+  // TB-Software: Diktat finalisieren, sobald die Aufnahme beendet ist (Button oder Autostop) UND die
+  // letzte Chunk-Transkription durch ist: gesammelten Text per kleiner KI korrigieren und in NEUER
+  // ZEILE an den bestehenden Feldinhalt ANFUEGEN (nie ersetzen). Bei Korrektur-Fehler: Rohtext anfuegen.
+  useEffect(() => {
+    if (isRecording) {
+      wasRecordingRef.current = true;
+      return;
+    }
+    if (!wasRecordingRef.current || isTranscribing) {
+      return;
+    }
+    wasRecordingRef.current = false;
+
+    const raw = dictationBufferRef.current.trim();
+    dictationBufferRef.current = '';
+    const autoSubmit = dictationAutoSubmitRef.current;
+    dictationAutoSubmitRef.current = false;
+
+    if (!raw) {
+      setDictationLive('');
+      return;
+    }
+
+    setDictationCorrecting(true);
+    void (async () => {
+      let finalText = raw;
+      try {
+        const res = await window.electron.tbDictationCorrect(raw);
+        if (res?.text && res.text.trim()) {
+          finalText = res.text.trim();
+        }
+      } catch {
+        /* Korrektur fehlgeschlagen -> Rohtext anfuegen */
+      }
+
+      const base = displayValueRef.current;
+      const sep = base.trim() ? (base.endsWith('\n') ? '' : '\n') : '';
+      const combined = base.trim() ? `${base}${sep}${finalText}` : finalText;
+      applyInputValue(combined);
+
+      setDictationCorrecting(false);
+      setDictationLive('');
+
+      if (autoSubmit && combined.trim()) {
+        trackVoiceDictation('auto_submit');
+        setTimeout(() => performSubmit(combined), 100);
+      } else {
+        textAreaRef.current?.focus();
+      }
+    })();
+    // Nur auf die Aufnahme-/Transkriptions-Zustaende reagieren; Feldwert via Ref (kein Re-Run bei Tippen).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isRecording, isTranscribing]);
 
   useEffect(() => {
     // The draft is restored here rather than through `initialValue`, because this
@@ -1586,6 +1644,33 @@ export default function ChatInput({
         />
       )}
       {/* Input row with inline action buttons wrapped in form */}
+      {/* TB-Software: Live-Diktat-Popup - zeigt fortlaufend den erkannten Text, dann "wird korrigiert". */}
+      {(isRecording || isTranscribing || dictationCorrecting) && (
+        <div className="fixed left-1/2 -translate-x-1/2 bottom-32 z-[1000] w-[min(680px,90vw)] rounded-xl border border-border-primary bg-background-primary shadow-lg p-3">
+          <div className="flex items-center gap-2 text-xs text-text-secondary mb-1">
+            {dictationCorrecting ? (
+              <>
+                <span className="inline-block w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+                <span>Diktat wird korrigiert …</span>
+              </>
+            ) : (
+              <>
+                <span className="inline-block w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                <span>Diktat läuft — sag „submit" zum Senden, oder Stopp per Mikrofon-Knopf</span>
+              </>
+            )}
+          </div>
+          <div
+            className={cn(
+              'text-sm max-h-40 overflow-y-auto whitespace-pre-wrap break-words',
+              dictationCorrecting ? 'text-text-secondary italic' : 'text-text-primary'
+            )}
+          >
+            {dictationLive || (dictationCorrecting ? '' : 'Sprich jetzt …')}
+          </div>
+        </div>
+      )}
+
       <form onSubmit={onFormSubmit} className="relative">
         <div className="relative">
           <textarea

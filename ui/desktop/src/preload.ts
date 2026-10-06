@@ -214,6 +214,7 @@ type ElectronAPI = {
     error?: string;
   }>;
   tbListDir: (dir: string) => Promise<{ ok: boolean; entries: string[]; error?: string }>;
+  tbDictationCorrect: (rawText: string) => Promise<{ ok: boolean; text: string; error?: string }>;
   // TB-Software: Erst-Start-Warnhinweis / Risiko-Zustimmung (3-fach + Audit).
   tbGetRiskConsent: () => Promise<{
     accepted: boolean;
@@ -442,6 +443,7 @@ const electronAPI: ElectronAPI = {
   showItemInFolder: (fullPath: string) => ipcRenderer.invoke('show-item-in-folder', fullPath),
   tbReadFile: (path: string) => ipcRenderer.invoke('tb-read-file', path),
   tbListDir: (dir: string) => ipcRenderer.invoke('tb-list-dir', dir),
+  tbDictationCorrect: (rawText: string) => ipcRenderer.invoke('tb-dictation-correct', rawText),
   tbGetRiskConsent: () => ipcRenderer.invoke('tb-get-risk-consent'),
   tbAcceptRiskConsent: (
     acknowledgements: { step: number; text: string; acceptedAt: string }[]

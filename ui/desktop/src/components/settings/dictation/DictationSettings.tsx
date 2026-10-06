@@ -92,6 +92,8 @@ export const DictationSettings = () => {
   const [preferredMic, setPreferredMic] = useState<string | null>(null);
   const [apiKey, setApiKey] = useState('');
   const [isEditingKey, setIsEditingKey] = useState(false);
+  // TB-Software: Automatisches Beenden nach X Sekunden Stille (0 = nur per Mikrofon-Knopf).
+  const [autostopSeconds, setAutostopSeconds] = useState(0);
   const { read, upsert, remove } = useConfig();
 
   const refreshStatuses = async () => {
@@ -125,6 +127,9 @@ export const DictationSettings = () => {
       const micValue = await read('voice_dictation_preferred_mic', false);
       setPreferredMic((micValue as string) || null);
 
+      const autostopValue = await read('voice_dictation_autostop_seconds', false);
+      setAutostopSeconds(Number(autostopValue) || 0);
+
       await refreshStatuses();
     };
 
@@ -141,6 +146,11 @@ export const DictationSettings = () => {
   const handleMicChange = (deviceId: string | null) => {
     setPreferredMic(deviceId);
     upsert('voice_dictation_preferred_mic', deviceId || '', false);
+  };
+
+  const handleAutostopChange = (seconds: number) => {
+    setAutostopSeconds(seconds);
+    upsert('voice_dictation_autostop_seconds', String(seconds), false);
   };
 
   const handleSaveKey = async () => {
@@ -283,6 +293,24 @@ export const DictationSettings = () => {
           )}
 
           <MicrophoneSelector selectedDeviceId={preferredMic} onDeviceChange={handleMicChange} />
+
+          {/* TB-Software: Automatisch beenden nach Sprechpause (oder nur per Mikrofon-Knopf). */}
+          <div className="space-y-1">
+            <label className="text-sm font-medium text-text-primary">Automatisch beenden</label>
+            <p className="text-xs text-text-secondary">
+              Diktat nach einer Sprechpause selbst beenden, oder nur per Mikrofon-Knopf.
+            </p>
+            <select
+              className="max-w-md w-full rounded-md border border-border-primary bg-background-primary px-2 py-1.5 text-sm text-text-primary"
+              value={autostopSeconds}
+              onChange={(e) => handleAutostopChange(Number(e.target.value))}
+            >
+              <option value={0}>Nur per Mikrofon-Knopf</option>
+              <option value={2}>Nach 2 s Stille beenden</option>
+              <option value={3}>Nach 3 s Stille beenden</option>
+              <option value={5}>Nach 5 s Stille beenden</option>
+            </select>
+          </div>
         </>
       )}
     </div>

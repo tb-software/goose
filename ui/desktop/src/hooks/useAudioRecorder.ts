@@ -124,6 +124,13 @@ export const useAudioRecorder = ({ onTranscription, onError }: UseAudioRecorderO
   const providerRef = useRef(provider);
   providerRef.current = provider;
 
+  // TB-Software: Session-Autostop nach durchgehender Stille (aus Config, 0 = nur Button).
+  const autoStopMsRef = useRef(0);
+  const lastVoiceAtRef = useRef(0);
+  const anySpeechRef = useRef(false);
+  const stopRequestedRef = useRef(false);
+  const stopRecordingRef = useRef<() => void>(() => {});
+
   // Keep callback refs fresh
   const onTranscriptionRef = useRef(onTranscription);
   onTranscriptionRef.current = onTranscription;
@@ -133,6 +140,10 @@ export const useAudioRecorder = ({ onTranscription, onError }: UseAudioRecorderO
   useEffect(() => {
     const check = async () => {
       try {
+        const secRaw = await read('voice_dictation_autostop_seconds', false);
+        const sec = Number(secRaw) || 0;
+        autoStopMsRef.current = sec > 0 ? sec * 1000 : 0;
+
         const val = await read('voice_dictation_provider', false);
         const pref = (val as DictationProvider) || null;
         if (!pref) {
@@ -157,6 +168,9 @@ export const useAudioRecorder = ({ onTranscription, onError }: UseAudioRecorderO
     isSpeakingRef.current = false;
     silenceStartRef.current = 0;
     speechStartRef.current = 0;
+    lastVoiceAtRef.current = 0;
+    anySpeechRef.current = false;
+    stopRequestedRef.current = false;
   }, []);
 
   const isActiveGeneration = useCallback(
@@ -220,6 +234,8 @@ export const useAudioRecorder = ({ onTranscription, onError }: UseAudioRecorderO
       const now = Date.now();
 
       if (rms(samples) > RMS_THRESHOLD) {
+        lastVoiceAtRef.current = now;
+        anySpeechRef.current = true;
         if (!isSpeakingRef.current) {
           isSpeakingRef.current = true;
           speechStartRef.current = now;
@@ -240,6 +256,20 @@ export const useAudioRecorder = ({ onTranscription, onError }: UseAudioRecorderO
           isSpeakingRef.current = false;
           silenceStartRef.current = 0;
         }
+      }
+
+      // TB-Software: Session-Autostop - nach dem ersten Sprechen und durchgehender Stille laenger als
+      // autoStopSilenceMs die Aufnahme beenden (Rest-Chunk wird in stopRecording noch transkribiert).
+      const autoStopMs = autoStopMsRef.current;
+      if (
+        autoStopMs > 0 &&
+        anySpeechRef.current &&
+        !stopRequestedRef.current &&
+        lastVoiceAtRef.current > 0 &&
+        now - lastVoiceAtRef.current > autoStopMs
+      ) {
+        stopRequestedRef.current = true;
+        stopRecordingRef.current();
       }
     },
     [flush, isActiveGeneration]
@@ -274,6 +304,7 @@ export const useAudioRecorder = ({ onTranscription, onError }: UseAudioRecorderO
       void transcribeChunk(mergeSamples(finalChunks), finalGeneration);
     }
   }, [cancelActiveGeneration, transcribeChunk]);
+  stopRecordingRef.current = stopRecording;
 
   const startRecording = useCallback(async () => {
     if (!isEnabled) {
