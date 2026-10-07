@@ -93,6 +93,9 @@ const removeQueuedMessage = (messages: QueuedMessage[], messageId: string): Queu
   messages.filter((msg) => msg.id !== messageId);
 
 const MAX_IMAGES_PER_MESSAGE = 10;
+// TB-Software: Ab dieser Groesse (5 MB) ein Hinweis + "Fortsetzen"-Pflicht beim Anhaengen -
+// TB-Goose ist nicht auf sehr grosse Anhaenge ausgelegt, kann sie aber verarbeiten.
+const LARGE_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 
 const TOKEN_LIMIT_DEFAULT = 128000; // used before a session has a backend-resolved limit
 
@@ -287,6 +290,8 @@ export default function ChatInput({
   const [isFocused, setIsFocused] = useState(false);
   const [pastedImages, setPastedImages] = useState<PastedImage[]>([]);
   const [isFilePickerOpen, setIsFilePickerOpen] = useState(false);
+  // TB-Software: Ids grosser Anhaenge (>5 MB), die der Nutzer per "Fortsetzen" bestaetigt hat.
+  const [confirmedLargeIds, setConfirmedLargeIds] = useState<Set<string>>(new Set());
 
   // Every path that puts text in the input goes through here, so the draft cannot
   // miss one: typing, dictation, link paste, history, file and mention insertion.
@@ -723,7 +728,6 @@ export default function ChatInput({
   // TB-Software: Auto-Senden-Countdown beenden, sobald eine neue Aufnahme startet, und beim Unmount.
   useEffect(() => {
     if (isRecording) cancelAutoSend();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isRecording]);
   useEffect(() => {
     return () => {
@@ -776,6 +780,19 @@ export default function ChatInput({
     () => [...droppedFiles, ...localDroppedFiles],
     [droppedFiles, localDroppedFiles]
   );
+
+  // TB-Software: grosse Anhaenge (>5 MB) muessen per "Fortsetzen" bestaetigt werden, bevor gesendet/
+  // eingereiht wird. Frueh berechnet, damit Submit-/Enter-/Queue-Pfade es gleichermassen beruecksichtigen.
+  const oversizedUnconfirmedFiles = allDroppedFiles.filter(
+    (file) => !file.error && (file.size ?? 0) > LARGE_ATTACHMENT_BYTES && !confirmedLargeIds.has(file.id)
+  );
+  const hasUnconfirmedLargeFiles = oversizedUnconfirmedFiles.length > 0;
+  const confirmLargeFiles = () =>
+    setConfirmedLargeIds((prev) => {
+      const next = new Set(prev);
+      oversizedUnconfirmedFiles.forEach((file) => next.add(file.id));
+      return next;
+    });
 
   const handleRemoveDroppedFile = (idToRemove: string) => {
     // Remove from local dropped files
@@ -1071,6 +1088,7 @@ export default function ChatInput({
     if (localDroppedFiles.length > 0) {
       setLocalDroppedFiles([]);
     }
+    setConfirmedLargeIds(new Set());
   }, [
     draftRef,
     droppedFiles.length,
@@ -1271,7 +1289,7 @@ export default function ChatInput({
   };
 
   const handleInterruptionAndQueue = () => {
-    if (!isLoading || !hasSubmittableContent) {
+    if (!isLoading || !hasSubmittableContent || hasUnconfirmedLargeFiles) {
       return false;
     }
 
@@ -1323,6 +1341,7 @@ export default function ChatInput({
   const canSubmit =
     !isLoading &&
     !queueProcessingBlocked &&
+    !hasUnconfirmedLargeFiles &&
     (displayValue.trim() ||
       pastedImages.some((img) => img.dataUrl && !img.error && !img.isLoading) ||
       allDroppedFiles.some((file) => !file.error && !file.isLoading));
@@ -1443,6 +1462,9 @@ export default function ChatInput({
     if (queueProcessingBlocked) {
       return;
     }
+    if (hasUnconfirmedLargeFiles) {
+      return;
+    }
     if (isLoading && hasSubmittableContent) {
       handleInterruptionAndQueue();
       return;
@@ -1462,7 +1484,7 @@ export default function ChatInput({
   // per Steer in den laufenden Lauf einspeisen (umlenken), statt ihn nur anzuhaengen. Klappt das nicht
   // (kein steuerbarer Lauf), faellt es auf normales Senden bzw. Anhaengen zurueck.
   const handleSendNowFromInput = async () => {
-    if (queueProcessingBlocked || !hasSubmittableContent) {
+    if (queueProcessingBlocked || !hasSubmittableContent || hasUnconfirmedLargeFiles) {
       return;
     }
     const images = convertImagesToImageData();
@@ -1547,7 +1569,23 @@ export default function ChatInput({
     } else {
       trackFileAttached('file');
       const path = window.electron.getPathForFile(file);
-      applyInputValue(displayValue.trim() ? `${displayValue.trim()} ${path}` : path);
+      if (file.size > LARGE_ATTACHMENT_BYTES) {
+        // TB-Software: grosse Datei als Chip in die Anhangsliste -> loest das "Fortsetzen"-Gate aus,
+        // statt den Pfad sofort ins Feld zu schreiben.
+        setLocalDroppedFiles((prev) => [
+          ...prev,
+          {
+            id: `selected-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            path,
+            name: file.name,
+            type: file.type,
+            isImage: false,
+            size: file.size,
+          },
+        ]);
+      } else {
+        applyInputValue(displayValue.trim() ? `${displayValue.trim()} ${path}` : path);
+      }
     }
 
     textAreaRef.current?.focus();
@@ -1589,6 +1627,7 @@ export default function ChatInput({
     !hasSubmittableContent ||
     isAnyImageLoading ||
     isAnyDroppedFileLoading ||
+    hasUnconfirmedLargeFiles ||
     isRecording ||
     isTranscribing ||
     queueProcessingBlocked ||
@@ -1601,6 +1640,7 @@ export default function ChatInput({
     if (isRecording) return intl.formatMessage(i18n.recording);
     if (isTranscribing) return intl.formatMessage(i18n.transcribing);
     if (chatState === ChatState.RestartingAgent) return intl.formatMessage(i18n.restartingSession);
+    if (hasUnconfirmedLargeFiles) return 'Grossen Anhang zuerst bestätigen ("Fortsetzen")';
     if (!hasSubmittableContent) return intl.formatMessage(i18n.typeMessage);
     return intl.formatMessage(i18n.send);
   };
@@ -1836,6 +1876,28 @@ export default function ChatInput({
       </form>
 
       {/* Combined files and images preview */}
+      {hasUnconfirmedLargeFiles && (
+        <div className="mx-4 mt-2 rounded-lg border border-yellow-500/60 bg-yellow-500/10 p-3 text-sm">
+          <p className="text-text-primary font-medium">Grosser Anhang</p>
+          <p className="text-text-secondary mt-1">
+            TB-Goose ist nicht auf sehr grosse Anhänge (über 5 MB) ausgelegt, kann sie aber verarbeiten.
+            Zum Fortsetzen bestätigen - oder den Anhang über das ×-Symbol entfernen.
+          </p>
+          <ul className="text-text-secondary mt-1 list-disc pl-5">
+            {oversizedUnconfirmedFiles.map((file) => (
+              <li key={file.id} className="truncate">
+                {file.name} - {((file.size ?? 0) / 1024 / 1024).toFixed(1)} MB
+              </li>
+            ))}
+          </ul>
+          <div className="mt-2">
+            <Button type="button" size="sm" variant="outline" onClick={confirmLargeFiles}>
+              Fortsetzen
+            </Button>
+          </div>
+        </div>
+      )}
+
       {(pastedImages.length > 0 || allDroppedFiles.length > 0) && (
         <div className="flex flex-wrap gap-2 p-4 mt-2 border-t border-border-primary">
           {/* Render pasted images first */}

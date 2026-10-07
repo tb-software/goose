@@ -45,3 +45,26 @@ kann mitten in einem Tool-Aufruf enden). Deshalb:
   Tools laufen relativ dazu). Behandle es als Projekt-Wurzel. Schreibe/lösche Dateien
   **nur dort**; brauchst du etwas **außerhalb**, frage vorher kurz nach, statt es
   eigenmächtig zu tun.
+
+<!-- TB-CANVIO:START -->
+## Dateien lesen & konvertieren (Canvio)
+
+Für **Binärdokumente, die du nicht direkt lesen kannst** (PDF, DOCX, XLSX, PPTX, Bilder,
+Audio, Video) und für **Format-Konvertierungen** steht ein Werkzeug bereit (nur Windows):
+
+- **Inhalt eines Dokuments lesen** (Text für dich extrahieren):
+  `powershell -NoProfile -File "$env:TB_CANVIO_SCRIPT" extract "<absoluter Pfad>"`
+  Gibt den extrahierten Text auf stdout. Nutze das, wenn eine angehängte/erwähnte
+  PDF/DOCX/XLSX/PPTX o. Ä. gelesen werden soll — öffne NICHT den rohen Binärinhalt.
+- **Datei konvertieren** (X → Y, z. B. docx→pdf, step→glb, jpg→png):
+  `powershell -NoProfile -File "$env:TB_CANVIO_SCRIPT" convert "<pfad>" <zielformat> ["<ausgabepfad>"]`
+  Gibt den Pfad der Ergebnisdatei auf stdout.
+
+Hinweise:
+- Der Aufruf **blockiert bis fertig** (zentraler Online-Konverter, kann Minuten dauern) —
+  das ist normal; nicht abbrechen.
+- Reine **Text-/Code-Dateien** (txt, md, csv, json, Quellcode) liest du direkt — dafür ist
+  Canvio nicht nötig.
+- Schlägt es fehl (Exit ≠ 0, Grund auf stderr), **sag der Nutzerin klar, dass und warum die
+  Datei nicht konvertiert/gelesen werden konnte** — rate den Inhalt nicht.
+<!-- TB-CANVIO:END -->

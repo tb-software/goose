@@ -7,6 +7,7 @@ export interface DroppedFile {
   name: string;
   type: string;
   isImage: boolean;
+  size?: number;
   dataUrl?: string;
   isLoading?: boolean;
   error?: string;
@@ -54,6 +55,7 @@ export const useFileDrop = () => {
             name: file.name,
             type: file.type,
             isImage,
+            size: file.size,
             isLoading: isImage, // Only images need loading state for preview generation
           };
         } catch (error) {
@@ -65,6 +67,7 @@ export const useFileDrop = () => {
             name: file.name,
             type: file.type,
             isImage: false,
+            size: file.size,
             isLoading: false,
             error: `Failed to get file path: ${errorMessage(error, 'Unknown error')}`,
           };

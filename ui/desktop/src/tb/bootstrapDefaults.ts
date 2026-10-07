@@ -133,6 +133,12 @@ export function ensureTbDefaults(): void {
     process.env.GOOSE_PREDEFINED_MODELS = JSON.stringify(TB_AUTO_MODELS);
   }
 
+  // TB-Software: Pfad zum Canvio-Helfer (PowerShell) fuer das Modell verfuegbar machen. Der
+  // goosehint verweist auf $env:TB_CANVIO_SCRIPT (extract/convert ueber den Online-Konverter).
+  if (!process.env.TB_CANVIO_SCRIPT) {
+    process.env.TB_CANVIO_SCRIPT = path.join(tbDefaultsDir(), 'tb-canvio.ps1');
+  }
+
   try {
     const appData = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
     const cfgDir = path.join(appData, 'Block', 'goose', 'config');
@@ -162,6 +168,11 @@ export function ensureTbDefaults(): void {
     if (fs.existsSync(hintsSrc) && !fs.existsSync(hintsDst)) {
       fs.copyFileSync(hintsSrc, hintsDst);
     }
+
+    // Bestehende .goosehints um den Canvio-Block ergaenzen (marker-umklammert, idempotent),
+    // damit auch Bestandsinstallationen den Datei-Lese-/Konvertier-Hinweis bekommen, ohne
+    // Nutzer-Anpassungen zu ueberschreiben.
+    ensureCanvioHint(hintsDst, hintsSrc);
 
     // Einmalige Korrekturen an bestehenden Configs (Marker: tb-migrations.json).
     tbMigrateConfig(cfgDir);
@@ -416,6 +427,30 @@ function tbMigrateConfig(cfgDir: string): void {
     fs.writeFileSync(markerFile, JSON.stringify({ applied }, null, 2));
   } catch (e) {
     log.error('[TB] tbMigrateConfig fehlgeschlagen', e);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Canvio-Hinweis in bestehende .goosehints nachruesten (marker-umklammert, idempotent).
+// ---------------------------------------------------------------------------
+const CANVIO_HINT_START = '<!-- TB-CANVIO:START -->';
+const CANVIO_HINT_END = '<!-- TB-CANVIO:END -->';
+
+function ensureCanvioHint(hintsDst: string, hintsSrc: string): void {
+  try {
+    if (!fs.existsSync(hintsDst) || !fs.existsSync(hintsSrc)) return;
+    const current = fs.readFileSync(hintsDst, 'utf8');
+    if (current.includes(CANVIO_HINT_START)) return; // bereits vorhanden -> nichts tun.
+    const srcText = fs.readFileSync(hintsSrc, 'utf8');
+    const s = srcText.indexOf(CANVIO_HINT_START);
+    const e = srcText.indexOf(CANVIO_HINT_END);
+    if (s === -1 || e === -1) return;
+    const block = srcText.slice(s, e + CANVIO_HINT_END.length);
+    const updated = current.replace(/\s*$/, '') + '\n\n' + block + '\n';
+    fs.writeFileSync(hintsDst, updated);
+    log.info('[TB] Canvio-Hinweis an bestehende .goosehints angehaengt.');
+  } catch (err) {
+    log.error('[TB] ensureCanvioHint fehlgeschlagen', err);
   }
 }
 
