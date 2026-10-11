@@ -57,6 +57,25 @@ impl CachedContextLimit {
         }
     }
 }
+
+// TB-Software: Vision-Faehigkeit dynamisch aus /v1/models (modalities.input) gecacht, analog
+// CachedContextLimit. Inner Option<bool>: Some(true/false) = Proxy hat eine Modalitaet deklariert,
+// None = keine modalities-Info (Aufrufer faellt auf den statischen Wert zurueck).
+#[derive(Debug, Clone, Copy)]
+enum CachedVision {
+    Success(Option<bool>),
+    Failure(Instant),
+}
+
+impl CachedVision {
+    fn value(self) -> Option<Option<bool>> {
+        match self {
+            Self::Success(vision) => Some(vision),
+            Self::Failure(fetched_at) if fetched_at.elapsed() < N_CTX_FAILURE_TTL => Some(None),
+            Self::Failure(_) => None,
+        }
+    }
+}
 pub const OPEN_AI_DEFAULT_MODEL: &str = "gpt-4o";
 pub const OPEN_AI_KNOWN_MODELS: &[(&str, usize)] = &[
     ("gpt-4o", 128_000),
@@ -169,6 +188,8 @@ pub struct OpenAiProvider {
     preserve_thinking_context: bool,
     #[serde(skip)]
     n_ctx_cache: Arc<Mutex<HashMap<String, CachedContextLimit>>>,
+    #[serde(skip)]
+    vision_cache: Arc<Mutex<HashMap<String, CachedVision>>>,
 }
 
 /// Builder for [`OpenAiProvider`].
@@ -289,6 +310,7 @@ impl OpenAiProviderBuilder {
             skip_canonical_filtering: self.skip_canonical_filtering,
             preserve_thinking_context: self.preserve_thinking_context,
             n_ctx_cache: Arc::new(Mutex::new(HashMap::new())),
+            vision_cache: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
@@ -388,6 +410,7 @@ impl OpenAiProvider {
             skip_canonical_filtering: false,
             preserve_thinking_context: false,
             n_ctx_cache: Arc::new(Mutex::new(HashMap::new())),
+            vision_cache: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -607,6 +630,67 @@ impl OpenAiProvider {
         })?;
         Ok(parse_n_ctx_from_models(&json, model_name))
     }
+
+    /// TB-Software: Liest aus /v1/models die Bild-Modalitaet fuer `model_name` (`modalities.input`).
+    /// `Some(true/false)` = deklariert; `None` = keine modalities (Aufrufer nutzt den statischen Wert).
+    async fn fetch_vision_from_api(&self, model_name: &str) -> Result<Option<bool>, ProviderError> {
+        let models_path =
+            Self::map_base_path(&self.base_path, "models", OPEN_AI_DEFAULT_MODELS_PATH);
+        let response = self.api_client.request(&models_path).response_get().await?;
+        if response.status() == StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+        let json = handle_response_openai_compat(response).await.map_err(|error| {
+            if matches!(&error, ProviderError::RequestFailed(message) if message.contains("not valid JSON")) {
+                ProviderError::EndpointNotFound(error.to_string())
+            } else {
+                error
+            }
+        })?;
+        Ok(parse_vision_from_models(&json, model_name))
+    }
+
+    /// TB-Software: Vision-Faehigkeit fuer den Request bestimmen. Die /v1/models-Modalitaet gewinnt
+    /// (mit Cache + getimtem Probe wie `get_context_limit`); fehlt die modalities-Info oder schlaegt
+    /// der Probe fehl, gilt `explicit` (der statische Wert aus `model_config`, inkl. auto:*-Fallback).
+    async fn get_vision_support(&self, model: &str, explicit: Option<bool>) -> Option<bool> {
+        if let Some(cached) = self
+            .vision_cache
+            .lock()
+            .ok()
+            .and_then(|cache| cache.get(model).copied())
+            .and_then(CachedVision::value)
+        {
+            return cached.or(explicit);
+        }
+
+        let probed = match tokio::time::timeout(
+            N_CTX_PROBE_TIMEOUT,
+            self.fetch_vision_from_api(model),
+        )
+        .await
+        {
+            Ok(Ok(vision)) => Ok(vision),
+            Ok(Err(error)) if error.is_endpoint_not_found() => Ok(None),
+            Ok(Err(error)) => Err(error),
+            Err(_) => Err(ProviderError::RequestFailed(
+                "Vision discovery timed out".into(),
+            )),
+        };
+
+        if let Ok(mut cache) = self.vision_cache.lock() {
+            let cached = match probed.as_ref() {
+                Ok(vision) => CachedVision::Success(*vision),
+                Err(_) => CachedVision::Failure(Instant::now()),
+            };
+            cache.insert(model.to_string(), cached);
+        }
+
+        match probed {
+            Ok(vision) => vision.or(explicit),
+            Err(_) => explicit,
+        }
+    }
 }
 
 fn parse_model_ids(json: &serde_json::Value) -> Result<Vec<String>, ProviderError> {
@@ -649,6 +733,33 @@ fn parse_n_ctx_from_models(json: &serde_json::Value, model_name: &str) -> Option
     // Fall back to the sole entry's n_ctx.
     match data.as_slice() {
         [only] => n_ctx(only),
+        _ => None,
+    }
+}
+
+/// TB-Software: Liest aus einer /v1/models-Antwort, ob `model_name` Bild-Input deklariert.
+/// `Some(true)`: `modalities.input` enthaelt "image" (case-insensitiv).
+/// `Some(false)`: `modalities` vorhanden, aber ohne "image".
+/// `None`: keine `modalities` (Aufrufer faellt auf den statischen Wert zurueck).
+fn parse_vision_from_models(json: &serde_json::Value, model_name: &str) -> Option<bool> {
+    let data = json.get("data")?.as_array()?;
+    let has_image = |entry: &serde_json::Value| -> Option<bool> {
+        let input = entry.get("modalities")?.get("input")?.as_array()?;
+        Some(
+            input
+                .iter()
+                .any(|v| v.as_str().is_some_and(|s| s.eq_ignore_ascii_case("image"))),
+        )
+    };
+    if let Some(entry) = data
+        .iter()
+        .find(|e| e.get("id").and_then(|v| v.as_str()) == Some(model_name))
+    {
+        return has_image(entry);
+    }
+    // Single-Model-Server ohne --alias: id ist der Dateipfad, nicht der Tag -> einzigen Eintrag nehmen.
+    match data.as_slice() {
+        [only] => has_image(only),
         _ => None,
     }
 }
@@ -710,13 +821,22 @@ impl Provider for OpenAiProvider {
     // Nur transiente Fehler (RateLimit/Server/Network) werden ohnehin wiederholt, keine 4xx.
     fn retry_config(&self) -> RetryConfig {
         fn env_usize(k: &str, d: usize) -> usize {
-            std::env::var(k).ok().and_then(|v| v.parse().ok()).unwrap_or(d)
+            std::env::var(k)
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(d)
         }
         fn env_u64(k: &str, d: u64) -> u64 {
-            std::env::var(k).ok().and_then(|v| v.parse().ok()).unwrap_or(d)
+            std::env::var(k)
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(d)
         }
         fn env_f64(k: &str, d: f64) -> f64 {
-            std::env::var(k).ok().and_then(|v| v.parse().ok()).unwrap_or(d)
+            std::env::var(k)
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(d)
         }
         RetryConfig::new(
             env_usize("OPENAI_MAX_RETRIES", 6),
@@ -831,6 +951,13 @@ impl Provider for OpenAiProvider {
             let thinking_preservation_format =
                 declared_model.and_then(|m| m.thinking_preservation_format);
 
+            // TB-Software: Vision dynamisch aus /v1/models (Proxy-Modalitaet gewinnt), sonst der
+            // statische Wert (model_config, inkl. auto:*-Fallback).
+            let supports_vision = self
+                .get_vision_support(&model_config.model_name, model_config.supports_vision)
+                .await
+                .unwrap_or(false);
+
             let mut payload = create_request_with_options(
                 model_config,
                 system,
@@ -841,7 +968,7 @@ impl Provider for OpenAiProvider {
                 OpenAiFormatOptions {
                     preserve_thinking_context: self.preserve_thinking_context
                         || thinking_preservation_format.is_some(),
-                    supports_vision: model_config.supports_vision.unwrap_or_default(),
+                    supports_vision,
                     thinking_preservation_format,
                 },
             )?;
@@ -1058,6 +1185,7 @@ mod tests {
             skip_canonical_filtering: false,
             preserve_thinking_context: false,
             n_ctx_cache: Arc::new(Mutex::new(HashMap::new())),
+            vision_cache: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -1471,6 +1599,67 @@ mod tests {
     }
 
     #[test]
+    fn parse_vision_true_when_input_has_image() {
+        let body = json!({
+            "data": [
+                { "id": "auto:vision", "modalities": { "input": ["text", "image"] } }
+            ]
+        });
+        assert_eq!(parse_vision_from_models(&body, "auto:vision"), Some(true));
+    }
+
+    #[test]
+    fn parse_vision_false_when_input_text_only() {
+        let body = json!({
+            "data": [
+                { "id": "auto:vision", "modalities": { "input": ["text"] } }
+            ]
+        });
+        assert_eq!(parse_vision_from_models(&body, "auto:vision"), Some(false));
+    }
+
+    #[test]
+    fn parse_vision_none_when_modalities_absent() {
+        let body = json!({
+            "data": [
+                { "id": "auto:vision" }
+            ]
+        });
+        assert_eq!(parse_vision_from_models(&body, "auto:vision"), None);
+    }
+
+    #[test]
+    fn parse_vision_case_insensitive_image() {
+        let body = json!({
+            "data": [
+                { "id": "auto:image", "modalities": { "input": ["Text", "Image"] } }
+            ]
+        });
+        assert_eq!(parse_vision_from_models(&body, "auto:image"), Some(true));
+    }
+
+    #[test]
+    fn parse_vision_falls_back_to_sole_entry_when_id_differs() {
+        let body = json!({
+            "data": [
+                { "id": "qwen3.6-35b-a3b-tbs", "modalities": { "input": ["text", "image"] } }
+            ]
+        });
+        assert_eq!(parse_vision_from_models(&body, "auto:vision"), Some(true));
+    }
+
+    #[test]
+    fn parse_vision_no_fallback_with_multiple_unmatched_entries() {
+        let body = json!({
+            "data": [
+                { "id": "model-a", "modalities": { "input": ["text", "image"] } },
+                { "id": "model-b", "modalities": { "input": ["text"] } }
+            ]
+        });
+        assert_eq!(parse_vision_from_models(&body, "model-c"), None);
+    }
+
+    #[test]
     fn derive_base_path_not_removing_api_path() {
         let r = derive_base_path("https://opencode.ai/zen/go");
         assert_eq!(r, "https://opencode.ai/zen/go/v1/chat/completions");
@@ -1524,6 +1713,7 @@ mod tests {
             skip_canonical_filtering: false,
             preserve_thinking_context: false,
             n_ctx_cache: Arc::new(Mutex::new(HashMap::new())),
+            vision_cache: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 

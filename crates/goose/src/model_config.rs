@@ -143,6 +143,9 @@ fn base_model_config_from_user_config(
         // "[image omitted: model does not support vision]" (formats/openai.rs). Der gericom-Gateway
         // reroutet Bild-Anfragen aber serverseitig auf ein VLM (per curl verifiziert). Darum Vision
         // fuer die TB-Tags explizit deklarieren, damit Goose echte image_url-Bloecke sendet.
+        // FALLBACK: Der OpenAI-Provider liest Vision bevorzugt dynamisch aus /v1/models
+        // (openai.rs get_vision_support, Proxy relay >=2.4.11 deklariert modalities.input); dieser
+        // statische Wert gilt nur, wenn /v1/models keine modalities liefert oder nicht erreichbar ist.
         supports_vision: if is_tb_auto_model(model_name) {
             Some(true)
         } else {
