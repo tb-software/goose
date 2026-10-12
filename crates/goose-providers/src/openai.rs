@@ -41,6 +41,9 @@ const OPEN_AI_DEFAULT_RESPONSES_PATH: &str = "v1/responses";
 const OPEN_AI_DEFAULT_MODELS_PATH: &str = "v1/models";
 const N_CTX_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 const N_CTX_FAILURE_TTL: Duration = Duration::from_secs(60);
+// TB-Software: Erfolgs-Cache fuer die Vision-Faehigkeit laeuft nach 3 min ab (die auto:*-Modalitaet
+// kann zur Laufzeit kippen), danach wird /v1/models neu geprobt. Der Relay liefert /v1/models in ~0,15 s.
+const VISION_SUCCESS_TTL: Duration = Duration::from_secs(180);
 
 #[derive(Debug, Clone, Copy)]
 enum CachedContextLimit {
@@ -61,16 +64,23 @@ impl CachedContextLimit {
 // TB-Software: Vision-Faehigkeit dynamisch aus /v1/models (modalities.input) gecacht, analog
 // CachedContextLimit. Inner Option<bool>: Some(true/false) = Proxy hat eine Modalitaet deklariert,
 // None = keine modalities-Info (Aufrufer faellt auf den statischen Wert zurueck).
+// ANDERS als beim Kontext-Limit bekommt auch Success eine (kurze) TTL: die Vision-Faehigkeit der
+// auto:*-Tags AENDERT sich zur Laufzeit (Gateway kippt auf text-only, sobald kein Vision-Node live
+// ist, und zurueck). Ohne TTL bliebe ein einmal geprobter Wert prozesslebenslang stehen und wuerde
+// die Selbstkorrektur aushebeln. Darum nach VISION_SUCCESS_TTL neu proben.
 #[derive(Debug, Clone, Copy)]
 enum CachedVision {
-    Success(Option<bool>),
+    Success(Option<bool>, Instant),
     Failure(Instant),
 }
 
 impl CachedVision {
     fn value(self) -> Option<Option<bool>> {
         match self {
-            Self::Success(vision) => Some(vision),
+            Self::Success(vision, fetched_at) if fetched_at.elapsed() < VISION_SUCCESS_TTL => {
+                Some(vision)
+            }
+            Self::Success(_, _) => None,
             Self::Failure(fetched_at) if fetched_at.elapsed() < N_CTX_FAILURE_TTL => Some(None),
             Self::Failure(_) => None,
         }
@@ -680,7 +690,7 @@ impl OpenAiProvider {
 
         if let Ok(mut cache) = self.vision_cache.lock() {
             let cached = match probed.as_ref() {
-                Ok(vision) => CachedVision::Success(*vision),
+                Ok(vision) => CachedVision::Success(*vision, Instant::now()),
                 Err(_) => CachedVision::Failure(Instant::now()),
             };
             cache.insert(model.to_string(), cached);
@@ -1741,6 +1751,111 @@ mod tests {
             assert_eq!(
                 provider.get_context_limit("unknown-model", None).await,
                 crate::model::DEFAULT_CONTEXT_LIMIT
+            );
+        }
+    }
+
+    // TB-Software: get_vision_support — Praezedenz /v1/models > statischer Wert, Fallback, Cache.
+    fn vision_provider(uri: &str) -> OpenAiProvider {
+        let mut provider = make_provider_with_custom_models(uri, "v1/chat/completions", vec![]);
+        provider.custom_models = None;
+        provider
+    }
+
+    #[tokio::test]
+    async fn vision_proxy_true_wins() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v1/models"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [ { "id": "auto:vision", "modalities": { "input": ["text", "image"] } } ]
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let provider = vision_provider(&server.uri());
+        // explicit=None, Proxy=image -> true; zweiter Aufruf aus dem Cache (expect(1)).
+        for _ in 0..2 {
+            assert_eq!(
+                provider.get_vision_support("auto:vision", None).await,
+                Some(true)
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn vision_proxy_false_overrides_explicit_true() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v1/models"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [ { "id": "auto:vision", "modalities": { "input": ["text"] } } ]
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let provider = vision_provider(&server.uri());
+        // Proxy sagt text-only -> schlaegt den statischen Hardcode Some(true).
+        for _ in 0..2 {
+            assert_eq!(
+                provider.get_vision_support("auto:vision", Some(true)).await,
+                Some(false)
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn vision_no_modalities_falls_back_to_explicit() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v1/models"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [ { "id": "auto:vision" } ]
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let provider = vision_provider(&server.uri());
+        // Keine modalities -> None -> Fallback auf den statischen Wert (Some(true)).
+        for _ in 0..2 {
+            assert_eq!(
+                provider.get_vision_support("auto:vision", Some(true)).await,
+                Some(true)
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn vision_probe_error_falls_back_to_explicit() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v1/models"))
+            .respond_with(ResponseTemplate::new(500))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let provider = vision_provider(&server.uri());
+        // Probe-Fehler -> Fallback auf den statischen Wert (Some(true)); zweiter Aufruf aus dem Cache.
+        for _ in 0..2 {
+            assert_eq!(
+                provider.get_vision_support("auto:vision", Some(true)).await,
+                Some(true)
             );
         }
     }
