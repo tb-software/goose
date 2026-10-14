@@ -48,7 +48,20 @@ $srcName = [IO.Path]::GetFileName($Path)
 $srcFormat = ([IO.Path]::GetExtension($Path)).TrimStart('.').ToLowerInvariant()
 if (-not $srcFormat) { Die "Quelldatei hat keine Endung (Format nicht bestimmbar): $Path" }
 
-Add-Type -AssemblyName System.Net.Http | Out-Null
+# System.Net.Http robust laden (das war der "Library-Fehler"):
+#  - Windows PowerShell 5.1 (Desktop): der Typ ist nicht per Default geladen -> Add-Type noetig.
+#  - PowerShell 7 (Core): der Typ ist BEREITS da; dort WUERFE 'Add-Type -AssemblyName System.Net.Http'
+#    "assembly could not be found" -> genau diese Meldung meldete der Client.
+# Darum: erst pruefen ob der Typ schon da ist, sonst mehrere Ladewege probieren, sonst KLARE Meldung.
+if (-not ('System.Net.Http.HttpClient' -as [type])) {
+  try { Add-Type -AssemblyName System.Net.Http -ErrorAction Stop } catch {}
+}
+if (-not ('System.Net.Http.HttpClient' -as [type])) {
+  try { [void][System.Reflection.Assembly]::LoadWithPartialName('System.Net.Http') } catch {}
+}
+if (-not ('System.Net.Http.HttpClient' -as [type])) {
+  Die "System.Net.Http konnte nicht geladen werden (PS $($PSVersionTable.PSVersion) $($PSVersionTable.PSEdition)). Mit 'powershell.exe' (Windows PowerShell 5.1) ausfuehren, oder .NET Framework 4.7.2+ reparieren/installieren."
+}
 
 # EIN gemeinsamer HttpClient fuer alle Aufrufe (konsistenter X-API-Key-Header, Verbindungs-Reuse).
 $Client = [System.Net.Http.HttpClient]::new()
