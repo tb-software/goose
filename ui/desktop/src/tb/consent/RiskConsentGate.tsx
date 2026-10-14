@@ -2,6 +2,25 @@
 // Bis alle drei Warnungen aktiv bestätigt sind, ist die App nicht bedienbar. Jede Bestätigung
 // wird mit Zeitstempel erfasst und als Audit gespeichert (lokal + Statistik).
 import React, { useEffect, useState } from 'react';
+import TbModuleInstallOffer from './TbModuleInstallOffer';
+
+// TB-Software: Merker, dass das "Vollstaendige Installation"-Angebot bereits beantwortet wurde
+// (einmalig pro Geraet; nicht bei jedem Start neu fragen).
+const MODULE_OFFER_KEY = 'tb.modulesOffer.v1';
+function offerResolved(): boolean {
+  try {
+    return localStorage.getItem(MODULE_OFFER_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+function markOfferResolved(): void {
+  try {
+    localStorage.setItem(MODULE_OFFER_KEY, '1');
+  } catch {
+    /* localStorage evtl. blockiert -> dann wird einmal mehr gefragt, unkritisch */
+  }
+}
 
 // Die drei Warntexte. Genau DIESE Texte werden auch im Audit gespeichert (Beweiskraft).
 const STEPS: string[] = [
@@ -23,7 +42,7 @@ interface Ack {
 }
 
 export default function RiskConsentGate({ children }: { children: React.ReactNode }) {
-  const [state, setState] = useState<'loading' | 'blocked' | 'accepted'>('loading');
+  const [state, setState] = useState<'loading' | 'blocked' | 'offer' | 'accepted'>('loading');
   const [step, setStep] = useState(0); // aktueller Schritt (0..STEPS.length-1)
   const [checked, setChecked] = useState(false);
   const [confirmText, setConfirmText] = useState(''); // nur letzter Schritt: „confirm" eintippen
@@ -41,7 +60,9 @@ export default function RiskConsentGate({ children }: { children: React.ReactNod
     }
     p.then((r) => {
       if (cancelled) return;
-      setState(r?.accepted ? 'accepted' : 'blocked');
+      // Bereits zugestimmt: nur noch das Modul-Angebot zeigen, falls es noch nie beantwortet wurde.
+      if (r?.accepted) setState(offerResolved() ? 'accepted' : 'offer');
+      else setState('blocked');
     }).catch(() => !cancelled && setState('blocked'));
     return () => {
       cancelled = true;
@@ -50,6 +71,16 @@ export default function RiskConsentGate({ children }: { children: React.ReactNod
 
   if (state === 'loading') return null;
   if (state === 'accepted') return <>{children}</>;
+  if (state === 'offer') {
+    return (
+      <TbModuleInstallOffer
+        onDone={() => {
+          markOfferResolved();
+          setState('accepted');
+        }}
+      />
+    );
+  }
 
   const isLastStep = step === STEPS.length - 1;
   const confirmTyped = confirmText.trim().toLowerCase() === CONFIRM_WORD;
@@ -78,7 +109,8 @@ export default function RiskConsentGate({ children }: { children: React.ReactNod
     try {
       const res = await window.electron.tbAcceptRiskConsent?.(nextAcks);
       if (res?.ok) {
-        setState('accepted');
+        // Direkt nach der Zustimmung das Angebot der Zusatzmodule zeigen (einmalig).
+        setState(offerResolved() ? 'accepted' : 'offer');
       } else {
         setError(res?.error || 'Speichern der Zustimmung fehlgeschlagen.');
         setSubmitting(false);

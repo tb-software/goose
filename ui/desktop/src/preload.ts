@@ -229,6 +229,25 @@ type ElectronAPI = {
   tbAcceptRiskConsent: (
     acknowledgements: { step: number; text: string; acceptedAt: string }[]
   ) => Promise<{ ok: boolean; record?: unknown; error?: string }>;
+  // TB-Software: Optionale Zusatzmodule ("Vollstaendige Installation" nach dem Consent-Gate).
+  tbModulesCatalog: () => Promise<
+    { key: string; name: string; description: string; note?: string; available: boolean }[]
+  >;
+  tbInstallModules: () => Promise<{
+    ok: boolean;
+    results: { key: string; name: string; ok: boolean; detail: string }[];
+    error?: string;
+  }>;
+  onTbModulesProgress: (
+    cb: (p: {
+      index: number;
+      total: number;
+      name: string;
+      phase: 'start' | 'done';
+      result?: { key: string; name: string; ok: boolean; detail: string };
+    }) => void
+  ) => () => void;
+  tbRelaunch: () => Promise<void>;
   // TB-Software: Chat-Tag-Manager (Milestone [10]).
   tbGetTags: () => Promise<{
     tags: { id: string; name: string; color: string; note?: string }[];
@@ -464,6 +483,14 @@ const electronAPI: ElectronAPI = {
   tbSearch: (roots: string[], query: string) => ipcRenderer.invoke('tb-search', roots, query),
   tbWatchFile: (path: string) => ipcRenderer.invoke('tb-watch-file', path),
   tbUnwatchFile: () => ipcRenderer.invoke('tb-unwatch-file'),
+  tbModulesCatalog: () => ipcRenderer.invoke('tb-modules-catalog'),
+  tbInstallModules: () => ipcRenderer.invoke('tb-install-modules'),
+  onTbModulesProgress: (cb) => {
+    const handler = (_event: unknown, p: unknown) => cb(p as Parameters<typeof cb>[0]);
+    ipcRenderer.on('tb-modules-progress', handler as never);
+    return () => ipcRenderer.removeListener('tb-modules-progress', handler as never);
+  },
+  tbRelaunch: () => ipcRenderer.invoke('tb-relaunch'),
   tbExportChat: (fileName: string, content: string) =>
     ipcRenderer.invoke('tb-export-chat', fileName, content),
   tbEnsureDirectory: (dirPath: string) => ipcRenderer.invoke('tb-ensure-directory', dirPath),

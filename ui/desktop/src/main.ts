@@ -31,6 +31,7 @@ import { installBackendCertificateVerifiers } from './backendCertificateVerifier
 import { configureProxy } from './proxy';
 import { startGooseServe } from './gooseServe';
 import { ensureTbDefaults, tbDefaultsDir } from './tb/bootstrapDefaults';
+import { catalogForDisplay, installModules } from './tb/modules/moduleCatalog';
 import { registerRiskConsentIpc } from './tb/consent/riskConsent';
 import { registerTbTagsIpc } from './tb/tags/tbTags';
 import { registerTbWolkeIpc } from './tb/wolke/tbWolke';
@@ -3469,6 +3470,32 @@ async function appMain() {
       }
     }
   );
+
+  // TB-Software: Optionale Zusatzmodule ("Vollstaendige Installation" nach dem Consent-Gate).
+  ipcMain.handle('tb-modules-catalog', async () => {
+    return catalogForDisplay();
+  });
+
+  ipcMain.handle('tb-install-modules', async (event) => {
+    try {
+      const results = await installModules((p) => {
+        try {
+          event.sender.send('tb-modules-progress', p);
+        } catch {
+          /* Fenster evtl. zu */
+        }
+      });
+      return { ok: true, results };
+    } catch (error) {
+      return { ok: false, results: [], error: (error as Error).message };
+    }
+  });
+
+  // Nach der Modul-Installation neu starten, damit das Backend die neuen MCPs seedet/laedt.
+  ipcMain.handle('tb-relaunch', async () => {
+    app.relaunch();
+    app.exit(0);
+  });
 
   // TB-Software: Datei fuer das Vorschau-Panel ueberwachen -> bei Aenderung auf der
   // Platte 'tb-file-changed' senden, damit die Vorschau automatisch neu laedt.
