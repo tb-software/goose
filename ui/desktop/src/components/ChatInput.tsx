@@ -2148,8 +2148,11 @@ export default function ChatInput({
           </>
         )}
 
-        {/* Right: mic — ghost icon, no background when idle */}
-        {dictationProvider && (
+        {/* Right: mic — ghost icon, no background when idle. TB-Software: auch anzeigen, wenn das
+            Diktat ueber den gebuendelten OpenAI-Whisper-Key einsatzbereit ist (isEnabled), also OHNE
+            manuell konfigurierten goosed-Provider. Frueher nur {dictationProvider} -> auf frischer
+            Installation (kein Provider gesetzt) war der Mic-Knopf unsichtbar, obwohl Diktat lief. */}
+        {(isEnabled || dictationProvider) && (
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
