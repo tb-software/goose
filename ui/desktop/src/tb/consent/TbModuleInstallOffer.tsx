@@ -17,7 +17,13 @@ interface ModuleResult {
   detail: string;
 }
 
-export default function TbModuleInstallOffer({ onDone }: { onDone: () => void }) {
+export default function TbModuleInstallOffer({
+  onDone,
+  onRelaunch,
+}: {
+  onDone: () => void;
+  onRelaunch: () => void;
+}) {
   const [catalog, setCatalog] = useState<CatalogEntry[]>([]);
   const [phase, setPhase] = useState<'ask' | 'installing' | 'summary'>('ask');
   const [progress, setProgress] = useState<string>('');
@@ -195,7 +201,7 @@ export default function TbModuleInstallOffer({ onDone }: { onDone: () => void })
                 <button onClick={onDone} style={btnGhost}>
                   Später (jetzt nur starten)
                 </button>
-                <button onClick={() => window.electron.tbRelaunch?.()} style={btnPrimary}>
+                <button onClick={onRelaunch} style={btnPrimary}>
                   Jetzt neu starten
                 </button>
               </div>

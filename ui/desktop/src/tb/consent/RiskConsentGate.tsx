@@ -78,6 +78,11 @@ export default function RiskConsentGate({ children }: { children: React.ReactNod
           markOfferResolved();
           setState('accepted');
         }}
+        onRelaunch={() => {
+          // Vor dem Neustart als beantwortet merken, sonst erscheint das Angebot danach erneut.
+          markOfferResolved();
+          window.electron.tbRelaunch?.();
+        }}
       />
     );
   }
