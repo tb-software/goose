@@ -63,7 +63,9 @@ export const MODULE_CATALOG: ModuleEntry[] = [
     key: 'lenax-browser',
     name: 'LenaX-Browser',
     description: 'Steuert das laufende Chrome (Tabs, navigieren, klicken, lesen, Screenshots).',
-    feedUrl: 'https://t78.ch/apps/proxy/downloads/lenax-browser/latest.ashx',
+    // Die MCP-Exe (lenax-browser-mcp) - NICHT der lenax-browser-Feed, der nur das Extension-/Policy-Kit
+    // (CRX + .reg) enthaelt. Die Chrome-Erweiterung selbst wird separat per CBCM-Richtlinie installiert.
+    feedUrl: 'https://t78.ch/apps/proxy/downloads/lenax-browser-mcp/latest.ashx',
     installDir: 'LenaX-Browser',
     verifyRel: 'lenax-browser-mcp.exe',
     note: 'Die Chrome-Erweiterung wird separat per Richtlinie (CBCM) installiert - nicht automatisch.',
