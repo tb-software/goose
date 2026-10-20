@@ -233,7 +233,18 @@ type ElectronAPI = {
   tbModulesCatalog: () => Promise<
     { key: string; name: string; description: string; note?: string; available: boolean }[]
   >;
-  tbInstallModules: () => Promise<{
+  tbModulesStatus: () => Promise<
+    {
+      key: string;
+      name: string;
+      description: string;
+      note?: string;
+      available: boolean;
+      installed: boolean;
+      target: string;
+    }[]
+  >;
+  tbInstallModules: (onlyKey?: string) => Promise<{
     ok: boolean;
     results: { key: string; name: string; ok: boolean; detail: string }[];
     error?: string;
@@ -484,7 +495,8 @@ const electronAPI: ElectronAPI = {
   tbWatchFile: (path: string) => ipcRenderer.invoke('tb-watch-file', path),
   tbUnwatchFile: () => ipcRenderer.invoke('tb-unwatch-file'),
   tbModulesCatalog: () => ipcRenderer.invoke('tb-modules-catalog'),
-  tbInstallModules: () => ipcRenderer.invoke('tb-install-modules'),
+  tbModulesStatus: () => ipcRenderer.invoke('tb-modules-status'),
+  tbInstallModules: (onlyKey?: string) => ipcRenderer.invoke('tb-install-modules', onlyKey),
   onTbModulesProgress: (cb) => {
     const handler = (_event: unknown, p: unknown) => cb(p as Parameters<typeof cb>[0]);
     ipcRenderer.on('tb-modules-progress', handler as never);

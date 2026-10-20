@@ -31,7 +31,7 @@ import { installBackendCertificateVerifiers } from './backendCertificateVerifier
 import { configureProxy } from './proxy';
 import { startGooseServe } from './gooseServe';
 import { ensureTbDefaults, tbDefaultsDir } from './tb/bootstrapDefaults';
-import { catalogForDisplay, installModules } from './tb/modules/moduleCatalog';
+import { catalogForDisplay, installModules, moduleStatus } from './tb/modules/moduleCatalog';
 import { registerRiskConsentIpc } from './tb/consent/riskConsent';
 import { registerTbTagsIpc } from './tb/tags/tbTags';
 import { registerTbWolkeIpc } from './tb/wolke/tbWolke';
@@ -3476,7 +3476,11 @@ async function appMain() {
     return catalogForDisplay();
   });
 
-  ipcMain.handle('tb-install-modules', async (event) => {
+  ipcMain.handle('tb-modules-status', async () => {
+    return moduleStatus();
+  });
+
+  ipcMain.handle('tb-install-modules', async (event, onlyKey?: string) => {
     try {
       const results = await installModules((p) => {
         try {
@@ -3484,7 +3488,7 @@ async function appMain() {
         } catch {
           /* Fenster evtl. zu */
         }
-      });
+      }, onlyKey);
       return { ok: true, results };
     } catch (error) {
       return { ok: false, results: [], error: (error as Error).message };

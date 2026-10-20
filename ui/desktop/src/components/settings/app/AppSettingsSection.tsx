@@ -13,6 +13,7 @@ import {
 } from '../../ui/dropdown-menu';
 import UpdateSection from './UpdateSection';
 import RiskConsentAudit from '../../../tb/consent/RiskConsentAudit';
+import TbModulesSettings from '../../../tb/modules/TbModulesSettings';
 
 import { COST_TRACKING_ENABLED, UPDATES_ENABLED } from '../../../updates';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../ui/card';
@@ -614,6 +615,8 @@ export default function AppSettingsSection({ scrollToSection }: AppSettingsSecti
           <RiskConsentAudit />
         </CardContent>
       </Card>
+
+      <TbModulesSettings />
 
       {/* Notification Instructions Modal */}
       <Dialog

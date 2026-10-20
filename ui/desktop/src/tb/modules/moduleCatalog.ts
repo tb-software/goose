@@ -98,6 +98,41 @@ export function catalogForDisplay(): Array<
   }));
 }
 
+export interface ModuleStatus {
+  key: string;
+  name: string;
+  description: string;
+  note?: string;
+  available: boolean; // Feed vorhanden -> installierbar
+  installed: boolean; // erwartete Exe liegt am Zielort
+  target: string; // Zielordner
+}
+
+// Status je Modul: ist die erwartete Exe am Zielort vorhanden (installiert)?
+export async function moduleStatus(): Promise<ModuleStatus[]> {
+  const out: ModuleStatus[] = [];
+  for (const m of MODULE_CATALOG) {
+    const target = path.join(applicationsBase(), m.installDir);
+    let installed: boolean;
+    try {
+      await fs.access(path.join(target, m.verifyRel));
+      installed = true;
+    } catch {
+      installed = false;
+    }
+    out.push({
+      key: m.key,
+      name: m.name,
+      description: m.description,
+      note: m.note,
+      available: m.feedUrl !== null,
+      installed,
+      target,
+    });
+  }
+  return out;
+}
+
 async function downloadToFile(url: string, destFile: string): Promise<void> {
   const resp = await fetch(url, { redirect: 'follow' });
   if (!resp.ok || !resp.body) {
@@ -167,11 +202,14 @@ async function installOne(mod: ModuleEntry): Promise<ModuleResult> {
   }
 }
 
-// Installiert alle Module mit Feed, meldet Fortschritt je Modul ueber onProgress.
+// Installiert alle Module mit Feed (oder nur onlyKey), meldet Fortschritt je Modul ueber onProgress.
 export async function installModules(
-  onProgress?: (p: { index: number; total: number; name: string; phase: 'start' | 'done'; result?: ModuleResult }) => void
+  onProgress?: (p: { index: number; total: number; name: string; phase: 'start' | 'done'; result?: ModuleResult }) => void,
+  onlyKey?: string
 ): Promise<ModuleResult[]> {
-  const installable = MODULE_CATALOG.filter((m) => m.feedUrl !== null);
+  const installable = MODULE_CATALOG.filter(
+    (m) => m.feedUrl !== null && (!onlyKey || m.key === onlyKey)
+  );
   const results: ModuleResult[] = [];
   for (let i = 0; i < installable.length; i++) {
     const mod = installable[i];
@@ -180,9 +218,11 @@ export async function installModules(
     results.push(res);
     onProgress?.({ index: i, total: installable.length, name: mod.name, phase: 'done', result: res });
   }
-  // Module ohne Feed trotzdem als uebersprungen melden (Transparenz).
-  for (const mod of MODULE_CATALOG.filter((m) => m.feedUrl === null)) {
-    results.push({ key: mod.key, name: mod.name, ok: false, detail: 'kein Feed veroeffentlicht - uebersprungen' });
+  // Module ohne Feed als uebersprungen melden (nur beim Gesamtlauf, nicht bei Einzel-Install).
+  if (!onlyKey) {
+    for (const mod of MODULE_CATALOG.filter((m) => m.feedUrl === null)) {
+      results.push({ key: mod.key, name: mod.name, ok: false, detail: 'kein Feed veroeffentlicht - uebersprungen' });
+    }
   }
   return results;
 }
