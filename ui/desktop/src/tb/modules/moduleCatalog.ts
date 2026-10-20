@@ -2,7 +2,7 @@
 // Jedes Modul wird aus seinem bestehenden Selbst-Update-Feed (latest.ashx -> 302 -> hoechste Version)
 // nach C:\_AI\Applications\<installDir>\ heruntergeladen und entpackt. TB-Goose verdrahtet die MCPs
 // danach automatisch (bootstrapDefaults sucht die Exe genau dort). Rein additiv, nichts wird geloescht.
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -21,6 +21,9 @@ export interface ModuleEntry {
   feedUrl: string | null; // null = Feed noch nicht publiziert -> nicht installierbar
   installDir: string; // Ordnername unter %SystemDrive%\_AI\Applications
   verifyRel: string; // relativer Pfad der Exe, an der der Erfolg geprueft wird
+  // 'mcp' = TB-Goose verdrahtet es als MCP (bootstrapDefaults findet die Exe am Zielort).
+  // 'app' = eigenstaendige App (z. B. Systray) -> nach dem Install Autostart (HKCU Run) + einmal starten.
+  type: 'mcp' | 'app';
   note?: string; // zusaetzlicher Hinweis (z. B. Abhaengigkeit, nicht lautlos)
 }
 
@@ -40,6 +43,7 @@ export const MODULE_CATALOG: ModuleEntry[] = [
     feedUrl: 'https://t78.ch/apps/lenaxdb/downloads/latest.ashx',
     installDir: 'LenaX-DB',
     verifyRel: path.join('mcp', 'lenaxdb-mcp.exe'),
+    type: 'mcp',
     note: 'Enthaelt die Embedding-Modelle (groesserer Download).',
   },
   {
@@ -49,6 +53,7 @@ export const MODULE_CATALOG: ModuleEntry[] = [
     feedUrl: 'https://t78.ch/apps/proxy/downloads/lenax-ipforward/latest.ashx',
     installDir: 'LenaX-IPForward',
     verifyRel: 'lenax-ipforward-mcp.exe',
+    type: 'mcp',
   },
   {
     key: 'lenax-computeruse',
@@ -57,6 +62,7 @@ export const MODULE_CATALOG: ModuleEntry[] = [
     feedUrl: 'https://t78.ch/apps/proxy/downloads/lenax-computeruse/latest.ashx',
     installDir: 'LenaX-ComputerUse',
     verifyRel: 'Tbrd.ComputerUse.Mcp.exe',
+    type: 'mcp',
     note: 'Braucht einen laufenden TBRD-Client auf diesem PC.',
   },
   {
@@ -68,16 +74,18 @@ export const MODULE_CATALOG: ModuleEntry[] = [
     feedUrl: 'https://t78.ch/apps/proxy/downloads/lenax-browser-mcp/latest.ashx',
     installDir: 'LenaX-Browser',
     verifyRel: 'lenax-browser-mcp.exe',
+    type: 'mcp',
     note: 'Die Chrome-Erweiterung wird separat per Richtlinie (CBCM) installiert - nicht automatisch.',
   },
   {
     key: 'support-assistant',
     name: 'Support-Assistent (Systray)',
     description: 'Ruhiger Assistent im Infobereich: suchen, fragen, (spaeter) mitlesen/nachfragen.',
-    feedUrl: null, // Feed noch nicht publiziert
+    feedUrl: 'https://t78.ch/apps/proxy/downloads/support-assistant/latest.ashx',
     installDir: 'LenaX-SupportAssistant',
-    verifyRel: 'SupportAssistant.exe',
-    note: 'Noch kein Download-Feed veroeffentlicht - folgt separat.',
+    verifyRel: 'LenaX.SupportAssistant.exe',
+    type: 'app',
+    note: 'Nutzt LenaX-DB als Gehirn; startet beim Login automatisch im Infobereich.',
   },
 ];
 
@@ -166,6 +174,22 @@ async function contentRoot(extractDir: string): Promise<string> {
   return extractDir;
 }
 
+// Fuer eigenstaendige Apps (type 'app', z. B. Systray): Autostart beim Login eintragen (HKCU Run,
+// benutzer-scoped, kein Admin) und einmal jetzt starten, damit der Nutzer sie sofort sieht.
+async function registerAutostartAndLaunch(mod: ModuleEntry, exe: string): Promise<void> {
+  const runKey = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run';
+  const valueName = `LenaX-${mod.key}`;
+  await execFileP('reg', ['add', runKey, '/v', valueName, '/t', 'REG_SZ', '/d', exe, '/f'], {
+    windowsHide: true,
+  });
+  try {
+    const child = spawn(exe, [], { detached: true, stdio: 'ignore' });
+    child.unref();
+  } catch {
+    /* Start-Fehler ist unkritisch - laeuft spaetestens beim naechsten Login */
+  }
+}
+
 async function installOne(mod: ModuleEntry): Promise<ModuleResult> {
   if (!mod.feedUrl) {
     return { key: mod.key, name: mod.name, ok: false, detail: 'kein Feed veroeffentlicht - uebersprungen' };
@@ -192,8 +216,14 @@ async function installOne(mod: ModuleEntry): Promise<ModuleResult> {
         detail: `entpackt, aber erwartete Datei fehlt (${mod.verifyRel}) - Archiv-Layout pruefen`,
       };
     }
+    if (mod.type === 'app') {
+      await registerAutostartAndLaunch(mod, exe).catch((e) =>
+        log.error(`[TB] Autostart ${mod.name} fehlgeschlagen`, e)
+      );
+    }
     log.info(`[TB] Modul ${mod.name}: installiert -> ${target}`);
-    return { key: mod.key, name: mod.name, ok: true, detail: `installiert nach ${target}` };
+    const extra = mod.type === 'app' ? ' (Autostart eingerichtet + gestartet)' : '';
+    return { key: mod.key, name: mod.name, ok: true, detail: `installiert nach ${target}${extra}` };
   } catch (e) {
     log.error(`[TB] Modul ${mod.name} fehlgeschlagen`, e);
     return { key: mod.key, name: mod.name, ok: false, detail: (e as Error).message };
