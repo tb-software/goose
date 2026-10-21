@@ -123,10 +123,18 @@ async function createSession(
   gooseExtensions: GooseExtension[],
   recipe?: AcpRecipeOptions
 ): Promise<Session> {
+  // TB-Software: Chat-Bereitschaftsanzeige - acpNewSession verbindet alle Erweiterungen synchron
+  // (kann beim ersten Start dauern). 'loading' vorher, 'done' + Ergebnisse danach.
+  window.dispatchEvent(new CustomEvent('tb:extensions-status', { detail: { phase: 'loading' } }));
   const { sessionId, sessionInfo, meta } = await acpNewSession(cwd, gooseExtensions, recipe);
   const session = sessionInfoToSession(sessionInfo, meta);
 
   showExtensionLoadResults(meta.extensionResults);
+  window.dispatchEvent(
+    new CustomEvent('tb:extensions-status', {
+      detail: { phase: 'done', results: meta.extensionResults ?? [] },
+    })
+  );
   window.dispatchEvent(
     new CustomEvent(AppEvents.SESSION_EXTENSIONS_LOADED, { detail: { sessionId } })
   );
@@ -160,16 +168,25 @@ async function loadSessionFromServer(
     acpChatSessionActions.startSessionLoad(sessionId);
   }
 
+  window.dispatchEvent(new CustomEvent('tb:extensions-status', { detail: { phase: 'loading' } }));
   try {
     const { sessionInfo, meta } = await acpLoadSession(sessionId);
 
     showExtensionLoadResults(meta.extensionResults);
+    window.dispatchEvent(
+      new CustomEvent('tb:extensions-status', {
+        detail: { phase: 'done', results: meta.extensionResults ?? [] },
+      })
+    );
     window.dispatchEvent(
       new CustomEvent(AppEvents.SESSION_EXTENSIONS_LOADED, { detail: { sessionId } })
     );
     acpChatSessionActions.finishSessionLoad(sessionId, sessionInfoToSession(sessionInfo, meta));
     options.onSessionLoaded?.();
   } catch (error) {
+    window.dispatchEvent(
+      new CustomEvent('tb:extensions-status', { detail: { phase: 'done', results: [] } })
+    );
     console.error('Failed to load ACP session:', error);
     acpChatSessionActions.failSessionLoad(sessionId, formatAcpError(error));
   }

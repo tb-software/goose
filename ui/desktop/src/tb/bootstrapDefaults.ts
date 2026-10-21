@@ -339,7 +339,18 @@ function seedManagedMcp(cfgDir: string, spec: ManagedMcp): void {
       const ownEntry =
         path.basename(String(existing.cmd ?? '').trim()).toLowerCase() === spec.exeName.toLowerCase();
       if (!ownEntry) return;
-      if (!exe) return; // Exe (nicht mehr) da -> nichts erzwingen.
+      if (!exe) {
+        // TB-Software: Exe fehlt (nicht/nicht mehr installiert) -> Eintrag DEAKTIVIEREN. Sonst
+        // versucht goose einen nicht existierenden Prozess zu starten und die Erweiterung bleibt
+        // dauerhaft "gelb" (verbindet nie). Wird die Exe (wieder) gefunden, oben automatisch reaktiviert.
+        if (existing.enabled !== false) {
+          const doc = yaml.parseDocument(raw);
+          doc.setIn(['extensions', spec.key, 'enabled'], false);
+          fs.writeFileSync(cfgFile, doc.toString());
+          log.info(`[TB] ${spec.name}: Exe fehlt -> deaktiviert (kein Dauer-Gelb).`);
+        }
+        return;
+      }
 
       const needsPathFix = String(existing.cmd ?? '').trim() !== exe; // Regel 3
       const needsEnable = existing.enabled !== true; // Regel 5
@@ -633,6 +644,18 @@ export function ensureLenaxDbExtension(
           );
         }
         fs.writeFileSync(cfgFile, doc.toString());
+      } else if (!keyWrong && !found && cmdBroken) {
+        // TB-Software: Exe nicht auffindbar und cmd zeigt ins Leere -> Eintrag DEAKTIVIEREN, damit
+        // die Erweiterung nicht dauerhaft "gelb" (verbindet nie) bleibt. Nach einer Installation wird
+        // sie beim naechsten Start oben automatisch repariert und kann wieder aktiviert werden.
+        const curEnabled = (parsed as { extensions?: Record<string, { enabled?: boolean }> })
+          .extensions?.[existing.key]?.enabled;
+        if (curEnabled !== false) {
+          const doc = yaml.parseDocument(raw);
+          doc.setIn(['extensions', existing.key, 'enabled'], false);
+          fs.writeFileSync(cfgFile, doc.toString());
+          log.info('[TB] LenaX-DB MCP: Exe fehlt -> deaktiviert (kein Dauer-Gelb).');
+        }
       }
       return;
     }

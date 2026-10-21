@@ -39,6 +39,7 @@ import { TbMetricsBar } from '../tb/TbMetricsBar';
 import { WorkingDirProvider } from '../tb/WorkingDirContext';
 import { useTbWindowTitle } from '../tb/useTbWindowTitle';
 import SessionActionsHeader from './SessionActionsHeader';
+import TbExtensionReadiness from '../tb/TbExtensionReadiness';
 import { isAcpRecovering, subscribeToAcpRecovery } from '../acp/acpConnection';
 
 const i18n = defineMessages({
@@ -444,6 +445,8 @@ export default function BaseChat({
           </div>
 
           <SessionActionsHeader session={session} onSessionChange={updateSession} />
+
+          <TbExtensionReadiness />
 
           <ScrollArea
             ref={scrollRef}
