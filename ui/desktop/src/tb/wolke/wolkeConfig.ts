@@ -5,6 +5,23 @@ import path from 'node:path';
 import os from 'node:os';
 import log from '../../utils/logger';
 
+// Wolken-Profil: wird bei der Registrierung mitgesendet und in LenaX Chat im Info-Dialog ⓘ gezeigt.
+// Alle Felder optional; der Server kürzt zu lange Werte. KEINE Pfade/Benutzernamen/Schlüssel hier:
+// das Profil ist für alle Nutzer von LenaX Chat sichtbar.
+export interface WolkeProfile {
+  title?: string; // Anzeigename im Profil und auf der Karte
+  subtitle?: string; // eine Zeile unter dem Titel
+  description?: string; // Beschreibung, Absätze mit Leerzeile
+  icon?: string; // "data:image/..." oder "https://...", max. 300 KB
+  emoji?: string; // Ersatz, wenn kein Bild
+  color?: string; // Hintergrund des Ersatz-Icons, z. B. "#4E79E0"
+  tags?: string[]; // Schlagworte (Grundlage für das spätere Tagging-Konzept)
+  meta?: Record<string, string>; // frei: Betreiber, Agent, Werkzeuge, Wissen ...
+  disclaimer?: string; // Hinweis-Kasten unten im Profil
+  url?: string; // Link "Mehr erfahren"
+  owner?: string;
+}
+
 export interface WolkeConfig {
   // Ist der PC als Wolken-Client aktiv (registriert + pollt)?
   enabled: boolean;
@@ -14,6 +31,8 @@ export interface WolkeConfig {
   clientId: string;
   // Anzeigename im Client-Index (Standard: Rechnername).
   clientName: string;
+  // Öffentliches Profil (optional) für die Anzeige in LenaX Chat.
+  profile?: WolkeProfile;
 }
 
 function configFile(): string {
@@ -47,6 +66,7 @@ export function readWolkeConfig(): WolkeConfig {
       queueBase: typeof parsed.queueBase === 'string' && parsed.queueBase ? parsed.queueBase : d.queueBase,
       clientId: typeof parsed.clientId === 'string' && parsed.clientId ? parsed.clientId : d.clientId,
       clientName: typeof parsed.clientName === 'string' && parsed.clientName ? parsed.clientName : d.clientName,
+      ...(parsed.profile && typeof parsed.profile === 'object' ? { profile: parsed.profile } : {}),
     };
   } catch (e) {
     log.error('[TB] readWolkeConfig fehlgeschlagen', e);
@@ -68,5 +88,11 @@ export function mergeWolkeConfig(current: WolkeConfig, patch: Partial<WolkeConfi
     clientId: current.clientId,
     clientName:
       typeof patch.clientName === 'string' && patch.clientName.trim() ? patch.clientName.trim() : current.clientName,
+    // Profil: 'profile' im Patch (auch leeres Objekt) ersetzt, undefined behält das aktuelle.
+    ...(patch.profile !== undefined
+      ? { profile: patch.profile }
+      : current.profile
+        ? { profile: current.profile }
+        : {}),
   };
 }

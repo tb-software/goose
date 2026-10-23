@@ -35,6 +35,7 @@ import { catalogForDisplay, installModules, moduleStatus } from './tb/modules/mo
 import { registerRiskConsentIpc } from './tb/consent/riskConsent';
 import { registerTbTagsIpc } from './tb/tags/tbTags';
 import { registerTbWolkeIpc } from './tb/wolke/tbWolke';
+import { registerTbQualityIpc, initQuality } from './tb/quality/tbQuality';
 import { initWolke } from './tb/wolke/wolkeBridge';
 import { registerTbArchiveIpc } from './tb/chats/tbArchive';
 import { registerTbForecastIpc } from './tb/status/tbForecast';
@@ -507,6 +508,9 @@ registerTbWolkeIpc();
 registerTbArchiveIpc();
 // TB-Software: IPC für die Zeit-Prognose per auto:chat (Milestone [16]).
 registerTbForecastIpc();
+// TB-Software: IPC für den Qualitätsregler (Stufe 1-10, Rollen, Reviewer) + .goosehints-Spiegelung.
+registerTbQualityIpc();
+initQuality();
 
 app.whenReady().then(() => {
   appConfig.GOOSE_LOCALE = getConfiguredGooseLocale();

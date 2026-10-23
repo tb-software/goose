@@ -97,11 +97,25 @@ export interface CreateChatWindowOptions {
 }
 
 // TB-Software: Wolke-Typen (Milestone [13]) — Spiegel von src/tb/wolke/*.
+export type TbWolkeProfile = {
+  title?: string;
+  subtitle?: string;
+  description?: string;
+  icon?: string;
+  emoji?: string;
+  color?: string;
+  tags?: string[];
+  meta?: Record<string, string>;
+  disclaimer?: string;
+  url?: string;
+  owner?: string;
+};
 export type TbWolkeConfig = {
   enabled: boolean;
   queueBase: string;
   clientId: string;
   clientName: string;
+  profile?: TbWolkeProfile;
 };
 export type TbArchiveEntry = {
   archivedAt: number;
@@ -121,6 +135,23 @@ export type TbWolkeStatus = {
   lastError: string | null;
   startedAt: number | null;
   lastPollAt: number | null;
+};
+
+export type TbQualityConfig = {
+  stufe: number; // 1..10
+  mode: 'auto' | 'manuell';
+  manualRoleIds: string[];
+};
+export type TbQualitySnapshot = {
+  config: TbQualityConfig;
+  roleNames: string[];
+};
+export type TbQualityRole = {
+  id: string;
+  name: string;
+  type: 'wissen' | 'produzent' | 'reviewer' | 'koordinator';
+  always: boolean;
+  minStufe: number;
 };
 
 // Define the API types in a single place
@@ -290,6 +321,10 @@ type ElectronAPI = {
   tbWolkeStart: () => Promise<TbWolkeStatus>;
   tbWolkeStop: () => Promise<TbWolkeStatus>;
   onTbWolkeStatus: (cb: (status: TbWolkeStatus) => void) => () => void;
+  // TB-Software: Qualitätsregler (Stufe 1-10, Rollen, Reviewer).
+  tbQualityGet: () => Promise<TbQualitySnapshot>;
+  tbQualitySet: (patch: Partial<TbQualityConfig>) => Promise<TbQualitySnapshot>;
+  tbQualityRoles: () => Promise<TbQualityRole[]>;
   // TB-Software: Chat-Archiv/Papierkorb (Milestone [15]).
   tbArchiveGet: () => Promise<{ archived: Record<string, TbArchiveEntry> }>;
   tbArchiveSave: (data: { archived: Record<string, TbArchiveEntry> }) => Promise<{ ok: boolean; error?: string }>;
@@ -521,6 +556,10 @@ const electronAPI: ElectronAPI = {
     ipcRenderer.on('tb-wolke-status', listener);
     return () => ipcRenderer.removeListener('tb-wolke-status', listener);
   },
+  // TB-Software: Qualitätsregler.
+  tbQualityGet: () => ipcRenderer.invoke('tb-quality-get'),
+  tbQualitySet: (patch: Partial<TbQualityConfig>) => ipcRenderer.invoke('tb-quality-set', patch),
+  tbQualityRoles: () => ipcRenderer.invoke('tb-quality-roles'),
   // TB-Software: Chat-Archiv/Papierkorb (Milestone [15]).
   tbArchiveGet: () => ipcRenderer.invoke('tb-archive-get'),
   tbArchiveSave: (data: unknown) => ipcRenderer.invoke('tb-archive-save', data),

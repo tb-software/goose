@@ -1,0 +1,65 @@
+{
+  "model": "auto:code",
+  "seedHints": "<!-- TB-QUALITY:START -->\nVerbindliche Stil-Regel für diese Sitzung: Beginne JEDE Antwort mit dem Präfix [QS]. Antworte danach normal.\n<!-- TB-QUALITY:END -->",
+  "cases": [
+    {
+      "id": "antwort-ok",
+      "prompt": "Antworte ausschliesslich mit dem Wort OK, ohne weitere Zeichen.",
+      "expect": { "regex": "OK" },
+      "timeoutMs": 60000
+    },
+    {
+      "id": "rechnung-einfach",
+      "prompt": "Was ergibt 127 plus 366? Nenne nur das Ergebnis als Zahl.",
+      "expect": { "regex": "493" },
+      "timeoutMs": 60000
+    },
+    {
+      "id": "fakt-bundesstadt-schweiz",
+      "prompt": "Wie heisst die Bundesstadt der Schweiz? Antworte in einem kurzen Satz.",
+      "expect": { "contains": ["Bern"] },
+      "timeoutMs": 60000
+    },
+    {
+      "id": "antwort-nicht-leer",
+      "prompt": "Nenne ein Tier, das fliegen kann.",
+      "expect": { "regex": "[A-Za-z]{3,}" },
+      "timeoutMs": 60000
+    },
+    {
+      "id": "datei-erstellen",
+      "prompt": "Erstelle die Datei <tmp>/regression_notiz.txt mit genau dem Inhalt REGRESSION-OK. Führe die nötigen Schritte aus und bestätige kurz.",
+      "expect": {
+        "fileExists": "<tmp>/regression_notiz.txt",
+        "fileContains": { "path": "<tmp>/regression_notiz.txt", "text": "REGRESSION-OK" },
+        "toolUsed": ["write"]
+      },
+      "timeoutMs": 150000
+    },
+    {
+      "id": "qs-hint-zahl",
+      "prompt": "Nenne mir in einem Satz eine Zahl zwischen 1 und 10.",
+      "expect": { "contains": ["[QS]"] },
+      "optional": true,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "qs-hint-mutex",
+      "prompt": "Erkläre in zwei Sätzen, was ein Mutex ist.",
+      "expect": { "contains": ["[QS]"] },
+      "optional": true,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "qs-hint-datei",
+      "prompt": "Erstelle die Datei <tmp>/regression_qs.txt mit genau dem Inhalt QS-OK. Führe die nötigen Schritte aus und bestätige kurz.",
+      "expect": {
+        "fileExists": "<tmp>/regression_qs.txt",
+        "fileContains": { "path": "<tmp>/regression_qs.txt", "text": "QS-OK" },
+        "contains": ["[QS]"]
+      },
+      "optional": true,
+      "timeoutMs": 150000
+    }
+  ]
+}

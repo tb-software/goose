@@ -1,0 +1,12 @@
+{
+  "model": "auto:code",
+  "seedHints": "<!-- TB-QUALITY:START -->\nVerbindliche Stil-Regel fuer diese Sitzung: Beginne JEDE Antwort mit dem Praefix [QS8]. Antworte danach normal.\n<!-- TB-QUALITY:END -->",
+  "cases": [
+    {
+      "id": "qualitaets-hint-wirkt",
+      "prompt": "Nenne mir in einem Satz eine Zahl zwischen 1 und 10.",
+      "expect": { "contains": ["[QS8]"] },
+      "timeoutMs": 60000
+    }
+  ]
+}

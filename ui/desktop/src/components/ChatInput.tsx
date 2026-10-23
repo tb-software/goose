@@ -36,6 +36,7 @@ import { CostTracker } from './bottom_menu/CostTracker';
 import { ContextWindowIndicator } from './bottom_menu/ContextWindowIndicator';
 import { TbToolshimToggle } from '../tb/TbToolshimToggle';
 import { TbBrowserToggle } from '../tb/TbBrowserToggle';
+import { TbQualityControl } from '../tb/TbQualityControl';
 import { DroppedFile, useFileDrop } from '../hooks/useFileDrop';
 import { Recipe } from '../recipe';
 import { MessageQueue, QueuedMessage } from './MessageQueue';
@@ -2060,6 +2061,9 @@ export default function ChatInput({
               tokenLimit={tokenLimit}
               alerts={alerts}
             />
+
+            {/* TB-Software: Qualitätsregler (Stufe 1-10, Rollen, Reviewer) */}
+            <TbQualityControl />
 
             {/* TB-Software: Toolshim-Umschalter (Text-Tool-Parsing für Modelle ohne native tool_calls) */}
             <TbToolshimToggle model={effectiveModel} />

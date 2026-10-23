@@ -1,0 +1,20 @@
+{
+  "model": "auto:code",
+  "cases": [
+    {
+      "id": "antwort-ok",
+      "prompt": "Antworte ausschliesslich mit dem Wort OK, ohne weitere Zeichen.",
+      "expect": { "regex": "OK" },
+      "timeoutMs": 60000
+    },
+    {
+      "id": "datei-erstellen",
+      "prompt": "Erstelle die Datei <tmp>/e2e_hallo.txt mit genau dem Inhalt HALLO. Fuehre die noetigen Schritte aus und bestaetige kurz.",
+      "expect": {
+        "fileExists": "<tmp>/e2e_hallo.txt",
+        "fileContains": { "path": "<tmp>/e2e_hallo.txt", "text": "HALLO" }
+      },
+      "timeoutMs": 150000
+    }
+  ]
+}

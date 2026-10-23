@@ -5,11 +5,17 @@
 // daher Modul-Singleton (nicht pro Fenster).
 import { app, net } from 'electron';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import yaml from 'yaml';
 import log from '../../utils/logger';
 import { startGooseServe, type GooseServeResult } from '../../gooseServe';
-import { createGooseAcpDriver, type WolkeAgentDriver } from './gooseAcpBridgeDriver';
-import { readWolkeConfig, type WolkeConfig } from './wolkeConfig';
+import {
+  createGooseAcpDriver,
+  type WolkeAgentDriver,
+  type WolkeAttachment,
+} from './gooseAcpBridgeDriver';
+import { readWolkeConfig, type WolkeConfig, type WolkeProfile } from './wolkeConfig';
 
 export type WolkePhase = 'stopped' | 'starting' | 'running' | 'error';
 
@@ -83,6 +89,65 @@ const doFetch = net.fetch as unknown as typeof globalThis.fetch;
 const postJson = (url: string, body: unknown) =>
   doFetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
 
+// Aktive Erweiterungen aus der goose-config.yaml zählen (für die Profil-Metadaten). Defensiv: bei
+// Fehlern 0/false, damit die Registrierung nie an der Profil-Berechnung scheitert.
+function readExtensionStats(): { active: number; lenaxDb: boolean } {
+  try {
+    const appData = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
+    const cfgFile = path.join(appData, 'Block', 'goose', 'config', 'config.yaml');
+    const raw = fs.readFileSync(cfgFile, 'utf8');
+    const parsed = (yaml.parse(raw) ?? {}) as {
+      extensions?: Record<string, { enabled?: boolean; type?: string; cmd?: string }>;
+    };
+    const exts = parsed.extensions ?? {};
+    let active = 0;
+    let lenaxDb = false;
+    for (const [key, ext] of Object.entries(exts)) {
+      if (ext?.enabled === false) continue;
+      active++;
+      if (/lenax[-_]?db/i.test(key) || /lenax[-_]?db/i.test(ext?.cmd ?? '')) lenaxDb = true;
+    }
+    return { active, lenaxDb };
+  } catch {
+    return { active: 0, lenaxDb: false };
+  }
+}
+
+// Effektives Profil: vom Nutzer gepflegte Felder (cfg.profile) über sinnvollen Vorbelegungen, die
+// TB-Goose selbst kennt. KEINE Pfade/Benutzernamen/Schlüssel — das Profil ist öffentlich sichtbar.
+function buildProfile(c: WolkeConfig): WolkeProfile {
+  const host = os.hostname() || 'TB-Goose-PC';
+  const version = (() => {
+    try {
+      return app.getVersion();
+    } catch {
+      return '';
+    }
+  })();
+  const { active, lenaxDb } = readExtensionStats();
+  const meta: Record<string, string> = {
+    Betreiber: host,
+    Agent: version ? `TB-Goose ${version}` : 'TB-Goose',
+    Werkzeuge: `${active} aktive Erweiterungen`,
+  };
+  if (lenaxDb) meta['Wissen'] = 'LenaX-DB (lokal)';
+  const user = c.profile ?? {};
+  return {
+    title: user.title ?? c.clientName,
+    subtitle: user.subtitle ?? 'TB-Goose-PC',
+    emoji: user.emoji ?? '🪿',
+    color: user.color ?? '#4E79E0',
+    ...(user.description ? { description: user.description } : {}),
+    ...(user.icon ? { icon: user.icon } : {}),
+    ...(user.url ? { url: user.url } : {}),
+    ...(user.disclaimer ? { disclaimer: user.disclaimer } : {}),
+    ...(user.owner ? { owner: user.owner } : {}),
+    ...(user.tags && user.tags.length ? { tags: user.tags } : {}),
+    // Nutzer-Metadaten gewinnen gegenüber den berechneten Vorbelegungen.
+    meta: { ...meta, ...(user.meta ?? {}) },
+  };
+}
+
 async function register(): Promise<void> {
   if (!cfg || !driver) return;
   try {
@@ -91,6 +156,7 @@ async function register(): Promise<void> {
       name: cfg.clientName,
       kind: driver.kind,
       capabilities: { streaming: 'chunk', longTurns: true },
+      profile: buildProfile(cfg),
     });
     if (!registered) {
       registered = true;
@@ -113,25 +179,42 @@ interface WorkItem {
   text: string;
   model?: string | null;
   thinkingEffort?: string | null;
+  attachments?: WolkeAttachment[];
 }
 
 async function processOne(work: WorkItem): Promise<void> {
   if (!cfg || !driver) return;
   const base = `${cfg.queueBase}/api/work/${encodeURIComponent(work.id)}`;
+  // Stopp aus dem Web: Queue antwortet auf heartbeat/chunk mit {cancel:true} -> Turn abbrechen.
+  const ac = new AbortController();
+  const watch = (p: Promise<Response>) =>
+    p.then(async (res) => {
+      try {
+        const r = (await res.clone().json()) as { cancel?: boolean } | null;
+        if (r && r.cancel && !ac.signal.aborted) ac.abort();
+      } catch {
+        /* keine/leere Antwort */
+      }
+      return res;
+    });
   const hb = setInterval(() => {
-    postJson(`${base}/heartbeat`, {}).catch(() => {});
+    watch(postJson(`${base}/heartbeat`, {})).catch(() => {});
   }, HEARTBEAT_MS);
   metrics.activeRuns++;
   emit();
   try {
     const onChunk = (text: string) => {
-      postJson(`${base}/chunk`, { text }).catch(() => {});
+      watch(postJson(`${base}/chunk`, { text })).catch(() => {});
     };
-    const { text } = await driver.runTurn(work.chatId, work.text, onChunk, {
+    const { text, usage } = await driver.runTurn(work.chatId, work.text, onChunk, {
       model: work.model,
       thinkingEffort: work.thinkingEffort,
+      attachments: work.attachments ?? [],
+      signal: ac.signal,
     });
-    await postJson(`${base}/done`, { finalText: text });
+    // Auch nach Abbruch den Teiltext senden: die Anfrage bleibt „abgebrochen", der Verlauf
+    // bleibt aber vollständig (Queue übernimmt den Text).
+    await postJson(`${base}/done`, { finalText: text, usage: usage ?? null });
     metrics.requestsServed++;
   } catch (e) {
     metrics.requestsFailed++;
