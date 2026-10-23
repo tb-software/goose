@@ -80,6 +80,8 @@ function freePort() {
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const withTimeout = (p, ms, label) =>
+  Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(`Zeitueberschreitung: ${label}`)), ms))]);
 
 // Kontrolliertes Config-Verzeichnis aufbauen. 'min' = nur developer-Extension (schneller, stabil,
 // kein lenax-db-Selbstladen); 'real' = die echte Nutzer-Config (volle Extensions).
@@ -180,16 +182,26 @@ async function connectAcp(acpUrl, cwd) {
     unstable_providerDeviceCode: () => {},
   };
   const client = connectGooseAcpClient(stream, callbacks);
-  await client.connection.agent.request(methods.agent.initialize, {
-    protocolVersion: PROTOCOL_VERSION,
-    _meta: { 'goose/useLoginShellPath': true },
-    clientCapabilities: {
-      elicitation: { form: {} },
-      _meta: { goose: { mcpHostCapabilities: DEFAULT_GOOSE_MCP_HOST_CAPABILITIES, customNotifications: true } },
-    },
-    clientInfo: { name: 'tb-e2e', version: '1.0.0' },
-  });
-  const res = await client.connection.agent.request(methods.agent.session.new, { cwd, mcpServers: [] });
+  // Setup mit Timeout, damit der Runner bei haengendem ACP/Extension (z. B. --config real mit lenax-db)
+  // nicht unbegrenzt blockiert, sondern sauber als Infrastruktur-Fehler abbricht.
+  await withTimeout(
+    client.connection.agent.request(methods.agent.initialize, {
+      protocolVersion: PROTOCOL_VERSION,
+      _meta: { 'goose/useLoginShellPath': true },
+      clientCapabilities: {
+        elicitation: { form: {} },
+        _meta: { goose: { mcpHostCapabilities: DEFAULT_GOOSE_MCP_HOST_CAPABILITIES, customNotifications: true } },
+      },
+      clientInfo: { name: 'tb-e2e', version: '1.0.0' },
+    }),
+    30000,
+    'initialize'
+  );
+  const res = await withTimeout(
+    client.connection.agent.request(methods.agent.session.new, { cwd, mcpServers: [] }),
+    60000,
+    'session.new'
+  );
   const sid = res.sessionId;
   let appliedModel = null;
   async function setModel(model) {
@@ -239,10 +251,14 @@ function checkExpect(expect, result, workdir) {
   for (const t of [].concat(expect.toolUsed || [])) if (!result.tools.some((x) => x.toLowerCase().includes(String(t).toLowerCase()))) problems.push(`Tool nicht benutzt: ${t} (benutzt: ${result.tools.join(', ') || 'keine'})`);
   for (const f of [].concat(expect.fileExists || [])) if (!fs.existsSync(sub(f))) problems.push(`Datei fehlt: ${sub(f)}`);
   if (expect.fileContains) {
-    const f = sub(expect.fileContains.path);
-    const want = expect.fileContains.text;
-    const got = fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : '';
-    if (!got.includes(want)) problems.push(`Datei ${f} enthaelt nicht ${JSON.stringify(want)}`);
+    const fc = expect.fileContains;
+    if (!fc || typeof fc !== 'object' || !fc.path || !fc.text) {
+      problems.push('fileContains braucht { path, text }');
+    } else {
+      const f = sub(fc.path);
+      const got = fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : '';
+      if (!got.includes(fc.text)) problems.push(`Datei ${f} enthaelt nicht ${JSON.stringify(fc.text)}`);
+    }
   }
   if (typeof expect.maxMs === 'number' && result.ms > expect.maxMs) problems.push(`zu langsam: ${result.ms}ms > ${expect.maxMs}ms`);
   if (result.timedOut) problems.push('Zeitueberschreitung');

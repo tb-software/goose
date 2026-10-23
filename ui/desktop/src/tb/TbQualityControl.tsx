@@ -38,6 +38,11 @@ export const TbQualityControl: React.FC = () => {
       .catch(() => {});
   }, []);
 
+  // Debounce-Timer beim Unmount aufraeumen (sonst feuert er nach dem Schliessen/Unmount).
+  useEffect(() => () => {
+    if (commitTimer.current) clearTimeout(commitTimer.current);
+  }, []);
+
   // Klick ausserhalb schliesst das Popover.
   useEffect(() => {
     if (!open) return;

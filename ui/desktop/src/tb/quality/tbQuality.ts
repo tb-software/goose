@@ -3,7 +3,7 @@
 import { ipcMain } from 'electron';
 import log from '../../utils/logger';
 import { readQualityConfig, writeQualityConfig, mergeQualityConfig, type QualityConfig } from './qualityConfig';
-import { DEFAULT_ROLES } from './roles';
+import { DEFAULT_ROLES, type Role } from './roles';
 import { applyQualityHint, rolesForConfig } from './qualityApply';
 
 export interface QualitySnapshot {
@@ -11,8 +11,8 @@ export interface QualitySnapshot {
   roleNames: string[]; // aktuell aktive Rollen (fuer die Anzeige)
 }
 
-function snapshot(cfg: QualityConfig): QualitySnapshot {
-  return { config: cfg, roleNames: rolesForConfig(cfg).map((r) => r.name) };
+function snapshot(cfg: QualityConfig, roles: Role[] = rolesForConfig(cfg)): QualitySnapshot {
+  return { config: cfg, roleNames: roles.map((r) => r.name) };
 }
 
 export function registerTbQualityIpc(): void {
@@ -22,9 +22,10 @@ export function registerTbQualityIpc(): void {
     try {
       const next = mergeQualityConfig(readQualityConfig(), patch);
       writeQualityConfig(next);
-      const changed = applyQualityHint(next);
+      const roles = rolesForConfig(next); // einmal berechnen, fuer Hint und Anzeige
+      const changed = applyQualityHint(next, roles);
       log.info(`[TB][quality] Stufe ${next.stufe}, Modus ${next.mode}, .goosehints ${changed ? 'aktualisiert' : 'unveraendert'}.`);
-      return snapshot(next);
+      return snapshot(next, roles);
     } catch (e) {
       log.error('[TB][quality] set fehlgeschlagen', e);
       return snapshot(readQualityConfig());

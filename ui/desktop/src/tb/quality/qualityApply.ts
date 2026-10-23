@@ -29,12 +29,11 @@ export function rolesForConfig(cfg: QualityConfig): Role[] {
 }
 
 // Den Qualitaets-Block in die verwaltete .goosehints schreiben (idempotent, marker-umklammert).
-// Gibt zurueck, ob die Datei geaendert wurde.
-export function applyQualityHint(cfg: QualityConfig): boolean {
+// Gibt zurueck, ob die Datei geaendert wurde. Rollen optional vorberechnet (spart doppeltes selectRoles).
+export function applyQualityHint(cfg: QualityConfig, roles: Role[] = rolesForConfig(cfg)): boolean {
   try {
     const hintsFile = path.join(qualityConfigDir(), '.goosehints');
     const params = qualityParams(cfg.stufe);
-    const roles = rolesForConfig(cfg);
     const block = composeQualityHint(params, roles); // Stufe 1 -> leerer Block (entfernt vorhandenen)
     const existing = fs.existsSync(hintsFile) ? fs.readFileSync(hintsFile, 'utf8') : '';
     const next = upsertMarkerBlock(existing, block);

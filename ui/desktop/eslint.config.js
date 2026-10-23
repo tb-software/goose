@@ -160,4 +160,26 @@ module.exports = [
       },
     },
   },
+  {
+    // TB-Software: standalone Node-Werkzeuge (E2E-Runner). Node-Globals statt Browser/Electron.
+    files: ['tools/**/*.mjs'],
+    languageOptions: {
+      ecmaVersion: 'latest',
+      sourceType: 'module',
+      globals: {
+        process: 'readonly',
+        console: 'readonly',
+        setTimeout: 'readonly',
+        clearTimeout: 'readonly',
+        setInterval: 'readonly',
+        clearInterval: 'readonly',
+        URL: 'readonly',
+        fetch: 'readonly',
+        AbortController: 'readonly',
+        Buffer: 'readonly',
+        __dirname: 'readonly',
+        require: 'readonly',
+      },
+    },
+  },
 ];
