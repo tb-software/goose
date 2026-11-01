@@ -35,7 +35,7 @@ import { catalogForDisplay, installModules, moduleStatus } from './tb/modules/mo
 import { registerRiskConsentIpc } from './tb/consent/riskConsent';
 import { registerTbTagsIpc } from './tb/tags/tbTags';
 import { registerTbWolkeIpc } from './tb/wolke/tbWolke';
-import { registerTbQualityIpc, initQuality } from './tb/quality/tbQuality';
+import { registerTbQualityIpc, initQuality, qualityCompactionBudgetEnv } from './tb/quality/tbQuality';
 import { initWolke } from './tb/wolke/wolkeBridge';
 import { registerTbArchiveIpc } from './tb/chats/tbArchive';
 import { registerTbForecastIpc } from './tb/status/tbForecast';
@@ -85,6 +85,11 @@ import {
   isAuthorizedFileAccessRequest,
   readSelectedRecipe,
 } from './desktopFileAccess';
+import {
+  resolveWorkspaceFile,
+  findExactBasenameUnder,
+  WORKSPACE_SEARCH_IGNORE_DIRS,
+} from './tb/resolveWorkspaceFile';
 
 function shouldSetupUpdater(): boolean {
   // Setup updater if either the flag is enabled OR dev updates are enabled
@@ -1335,6 +1340,9 @@ const createChat = async (
         env: {
           GOOSE_PATH_ROOT: appConfig.GOOSE_PATH_ROOT as string | undefined,
           TB_KNOWLEDGE_SPOOL_DIR: knowledgeSpool,
+          // TB-Software [19/2b]: Qualitaetsregler als realer Hebel - hoehere Stufe gibt der
+          // Verdichtung ein groesseres Output-Budget. undefined bei niedriger Stufe (Backend-Default).
+          GOOSE_COMPACTION_MAX_TOKENS: qualityCompactionBudgetEnv(),
         },
         loginShellPath,
         isPackaged: app.isPackaged,
@@ -3185,15 +3193,21 @@ async function appMain() {
     }
   });
 
-  // TB-Software: Datei im Explorer anzeigen UND markieren.
+  // TB-Software: Eine DATEI im Explorer anzeigen UND markieren.
   // shell.showItemInFolder ist auf diesem Windows-/Electron-Setup KAPUTT: Backslash-Pfade
   // werfen, Forward-Slash-Pfade oeffnen faelschlich C:\ (Wurzel) statt die Datei zu markieren
   // (beides verifiziert). Daher direkt die kanonische Windows-Methode: explorer.exe /select,<Pfad>.
   // explorer liefert auch bei Erfolg Exit-Code 1 -> NICHT auf Exit pruefen, nur starten.
-  const tbRevealInFolder = (raw: string): boolean => {
+  // WICHTIG: /select erwartet eine DATEI (markiert sie im Elternordner). Auf einen ORDNER
+  // angewandt oeffnet es dessen Elternordner (gefuehlt "falscher Ordner"), bei Trailing-Slash
+  // oder nicht existierendem Pfad faellt Explorer auf den Desktop zurueck. Darum unterscheidet
+  // der Handler unten vorher Ordner/Datei/fehlend und ruft dies nur fuer echte Dateien.
+  const tbRevealFileInFolder = (raw: string): boolean => {
     try {
       if (process.platform === 'win32') {
-        const native = path.win32.normalize(raw);
+        // Trailing-Separatoren entfernen (ausser direkt nach dem Laufwerk: "C:\").
+        const trimmed = raw.replace(/[\\/]+$/, (m, off) => (off <= 2 ? m : ''));
+        const native = path.win32.normalize(trimmed);
         spawn('explorer.exe', ['/select,' + native], { detached: true, stdio: 'ignore' }).unref();
         return true;
       }
@@ -3203,19 +3217,34 @@ async function appMain() {
       return false;
     }
   };
+  // Rueckwaertskompatibler Alias fuer Aufrufer, die immer eine Datei uebergeben (z. B. Chat-Export).
+  const tbRevealInFolder = tbRevealFileInFolder;
+  // Ergebnis: { ok, kind } mit kind = 'dir' | 'file' | 'missing'. Der Renderer kann bei
+  // 'missing' eine klare Meldung zeigen, statt dass Explorer kommentarlos den Desktop oeffnet.
   ipcMain.handle('show-item-in-folder', async (_event, fullPath: string) => {
+    const raw = (fullPath || '').trim();
+    if (!raw) return { ok: false, kind: 'missing' as const };
+    // Trailing-Separatoren fuer stat/openPath weg (ausser "C:\").
+    const cleaned = raw.replace(/[\\/]+$/, (m: string, off: number) => (off <= 2 ? m : ''));
     try {
-      if (fullPath && tbRevealInFolder(fullPath)) return true;
-      const dir = fullPath ? path.win32.dirname(fullPath) : '';
-      if (dir) {
-        const err = await shell.openPath(dir.replace(/\\/g, '/'));
-        if (err === '') return true;
+      const st = await fs.stat(cleaned);
+      if (st.isDirectory()) {
+        // Ordner: HINEIN oeffnen (nicht den Elternordner markieren).
+        const err = await shell.openPath(cleaned);
+        if (err) {
+          console.error('Error opening directory:', err, cleaned);
+          return { ok: false, kind: 'dir' as const };
+        }
+        return { ok: true, kind: 'dir' as const };
       }
-      console.error('Error showing item in folder: alle Varianten fehlgeschlagen fuer', fullPath);
-      return false;
-    } catch (error) {
-      console.error('Error showing item in folder:', error);
-      return false;
+      // Datei: im Elternordner markieren.
+      if (tbRevealFileInFolder(cleaned)) return { ok: true, kind: 'file' as const };
+      const dir = path.win32.dirname(cleaned);
+      if (dir && (await shell.openPath(dir)) === '') return { ok: true, kind: 'file' as const };
+      return { ok: false, kind: 'file' as const };
+    } catch {
+      // Pfad existiert nicht (oder nicht erreichbar) -> NICHT den Desktop oeffnen.
+      return { ok: false, kind: 'missing' as const };
     }
   });
 
@@ -3336,6 +3365,26 @@ async function appMain() {
     } catch (error) {
       return { ok: false, error: (error as Error).message };
     }
+  });
+
+  // TB-Software: Datei-Pfad aufloesen (absolut, relativ oder blosser Dateiname) gegen das
+  // Arbeitsverzeichnis des Fensters. Kontext-unabhaengig ueber den Main-Prozess: er kennt die
+  // kanonische Workdir je Fenster (desktopFileAccess), unabhaengig vom React-Context des Renderers.
+  // Liefert { ok, path, reason } (reason: exists | resolved | found | missing | empty | no-working-dir).
+  ipcMain.handle('tb-resolve-file', async (event, raw: string) => {
+    const windowId = BrowserWindow.fromWebContents(event.sender)?.id;
+    const workingDir = windowId != null ? desktopFileAccess.getWorkingDirectory(windowId) : null;
+    return resolveWorkspaceFile(raw, workingDir, {
+      exists: async (abs) => {
+        try {
+          await fs.access(abs);
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      findByBasename: (root, basename) => findExactBasenameUnder(root, basename),
+    });
   });
 
   // TB-Software: Datei-NAMEN eines Ordners auflisten (nur Dateien, gekappt). Fuer den Vorschau-
@@ -3542,14 +3591,59 @@ async function appMain() {
     return true;
   });
 
+  // TB-Software: Live-Liste der auto:*-Routing-Tags vom Gateway (/v1/models). So erscheinen neue
+  // Kategorien (z. B. auto:fast) AUTOMATISCH im Modell-Dropdown, ohne statische Pflege. Nur die
+  // auto:*-Tags (und '*') werden zurueckgegeben - die konkreten Fleet-Modelle bleiben verborgen
+  // (Laien-UX). Bei Fehler/Offline liefert der Renderer die gebuendelte Fallback-Liste.
+  ipcMain.handle('tb-auto-models', async () => {
+    try {
+      const host = (process.env.OPENAI_HOST || 'https://t78.ch').replace(/\/+$/, '');
+      const basePath =
+        process.env.OPENAI_BASE_PATH || 'apps/proxy/gericom/jumpserver.ashx/v1/chat/completions';
+      const modelsPath = /\/chat\/completions\/?$/.test(basePath)
+        ? basePath.replace(/\/chat\/completions\/?$/, '/models')
+        : `${basePath.replace(/\/+$/, '')}/models`;
+      const url = `${host}/${modelsPath.replace(/^\/+/, '')}`;
+      const key = process.env.OPENAI_API_KEY || 'none';
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 12000);
+      const resp = await fetch(url, {
+        method: 'GET',
+        signal: ctrl.signal,
+        headers: {
+          Authorization: `Bearer ${key}`,
+          'X-Title': 'TB-Goose',
+          'X-Client': 'TB-Goose',
+          'X-Client-Site': 'gericom',
+        },
+      });
+      clearTimeout(timer);
+      if (!resp.ok) {
+        return { ok: false, error: `HTTP ${resp.status}`, models: [] as { id: string; contextLimit?: number }[] };
+      }
+      const data = (await resp.json()) as {
+        data?: { id?: string; context_limit?: number; context_length?: number }[];
+      };
+      const models = (data.data ?? [])
+        .map((m) => ({
+          id: (m.id ?? '').trim(),
+          contextLimit: m.context_limit ?? m.context_length ?? undefined,
+        }))
+        .filter((m) => m.id && (m.id.startsWith('auto:') || m.id === '*'));
+      return { ok: true, models };
+    } catch (error) {
+      return {
+        ok: false,
+        error: (error as Error).message,
+        models: [] as { id: string; contextLimit?: number }[],
+      };
+    }
+  });
+
   // TB-Software: Datei-NAMEN-Suche über Projekt-Ordner (kein Inhalt; v1).
   ipcMain.handle('tb-search', async (_event, roots: string[], query: string) => {
     const q = (query || '').trim().toLowerCase();
     if (!q) return { ok: true, results: [], truncated: false };
-    const IGNORE = new Set([
-      'node_modules', '.git', '.venv', 'venv', 'dist', 'build', 'out', '.next',
-      'target', '.cache', '__pycache__', '.idea', '.vs', 'bin', 'obj',
-    ]);
     const MAX_RESULTS = 500;
     const MAX_ENTRIES = 200000;
     const deadline = Date.now() + 8000;
@@ -3570,7 +3664,7 @@ async function appMain() {
         if (stop()) { truncated = true; return; }
         entries++;
         if (d.isDirectory()) {
-          if (IGNORE.has(d.name) || d.name.startsWith('.')) continue;
+          if (WORKSPACE_SEARCH_IGNORE_DIRS.has(d.name) || d.name.startsWith('.')) continue;
           await walk(path.join(dir, d.name), root);
         } else if (d.isFile() && d.name.toLowerCase().includes(q)) {
           const full = path.join(dir, d.name);

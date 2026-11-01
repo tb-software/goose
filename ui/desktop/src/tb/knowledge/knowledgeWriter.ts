@@ -171,7 +171,7 @@ export async function persistKnowledge(
       const gi = path.join(paths.root, '.gitignore');
       if (!(await pathExists(gi))) {
         await fs
-          .writeFile(gi, '# TB-Goose Wissens-Ablage – nicht versionieren\n*\n', 'utf8')
+          .writeFile(gi, '# TB-Goose Wissens-Ablage, nicht versionieren\n*\n', 'utf8')
           .catch(() => {});
       }
     }
@@ -224,7 +224,7 @@ export async function persistKnowledge(
         `# ${req.title ?? 'Chat'}`,
         '',
         `- Arbeitsordner: \`${req.workingDir}\``,
-        `- Modell: ${req.model ?? '—'}`,
+        `- Modell: ${req.model ?? '-'}`,
         `- Erstellt: ${createdIso}`,
         '',
         'Einstieg: [summary.md](summary.md) · Verlauf: [details/](details/)',

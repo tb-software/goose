@@ -296,6 +296,9 @@ async function main() {
       results.push({ id: c.id, ok, optional, ms: r.ms, problems, tools: r.tools });
       const tag = optional ? (ok ? 'PASS (optional)' : 'FAIL (optional, zaehlt nicht)') : ok ? 'PASS' : 'FAIL';
       console.log(`${tag} (${r.ms}ms)` + (ok ? '' : `: ${problems.join('; ')}`));
+      if (!ok || arg('verbose', false)) {
+        console.log(`    Antwort[${(r.text || '').length}]: ${JSON.stringify((r.text || '').slice(0, 200))}  Tools: [${r.tools.join(', ')}]${r.error ? '  err=' + r.error : ''}`);
+      }
     }
   } finally {
     try {

@@ -35,7 +35,7 @@ function openProjectFolder(dir: string) {
 async function saveChatToFile(text: string) {
   const api = electronApi();
   if (!api?.showSaveDialog || !api?.writeFile) {
-    void copyText(text, 'Chat kopiert (Speichern nicht verfuegbar)');
+    void copyText(text, 'Chat kopiert (Speichern nicht verfügbar)');
     return;
   }
   try {

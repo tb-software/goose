@@ -16,7 +16,7 @@ export const TbBrowserToggle: React.FC = () => {
       onClick={() => (open ? preview.close() : preview.openBrowser())}
       title={
         open
-          ? 'Browser-Panel schließen'
+          ? 'Browser-Panel schliessen'
           : 'Browser im rechten Panel öffnen (surfen; vom Agenten steuerbar)'
       }
       className={cn(

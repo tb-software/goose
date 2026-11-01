@@ -101,7 +101,7 @@ describe('detectProgress', () => {
     expect(labels).toContain('Position');
     expect(labels).toContain('Segmente');
     expect(labels).toContain('Phase');
-    expect(labels).toContain('Groesse');
+    expect(labels).toContain('Grösse');
   });
 
   it('diarizing: running bei 96%', () => {

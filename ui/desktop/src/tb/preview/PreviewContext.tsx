@@ -32,7 +32,21 @@ export const PreviewProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const open = useCallback((p: string) => {
     setInline(null);
     setBrowserUrl(null);
-    setPath(p);
+    setPath(p); // sofort anzeigen (kein Leerzustand)
+    // TB-Software: danach kanonisch aufloesen. Der Main-Prozess kennt die Workdir je Fenster und
+    // findet so auch einen blossen Dateinamen / relativen Pfad in einem Unterordner - EGAL wie der
+    // Basis-Pfad aussieht. Nur ersetzen, wenn der Nutzer zwischenzeitlich nichts anderes geoeffnet hat.
+    void window.electron
+      .tbResolveFile?.(p)
+      .then((r) => {
+        if (r?.ok && r.path) {
+          const resolved = r.path;
+          setPath((cur) => (cur === p ? resolved : cur));
+        }
+      })
+      .catch(() => {
+        /* Fallback: PreviewBody zeigt ggf. "nicht gefunden" */
+      });
   }, []);
   const openInline = useCallback((item: InlineItem) => {
     setPath(null);

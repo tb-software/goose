@@ -1,4 +1,4 @@
-// TB-Software: Angebot "Vollstaendige Installation" direkt NACH dem Consent-Gate. Wer ablehnt,
+// TB-Software: Angebot "Vollständige Installation" direkt NACH dem Consent-Gate. Wer ablehnt,
 // startet TB-Goose normal. Wer zustimmt, laedt die Zusatzmodule (LenaX-DB, IP-Forwarder,
 // Computer-Steuerung, LenaX-Browser) aus ihren Feeds; TB-Goose verdrahtet sie beim Neustart.
 import React, { useEffect, useState } from 'react';

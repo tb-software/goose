@@ -1,4 +1,4 @@
-import Electron, { contextBridge, ipcRenderer, webUtils } from 'electron';
+﻿import Electron, { contextBridge, ipcRenderer, webUtils } from 'electron';
 import { Recipe } from './recipe';
 import type { GooseApp } from './types/apps';
 import type { Settings, SettingKey } from './utils/settings';
@@ -235,7 +235,10 @@ type ElectronAPI = {
   hasAcceptedRecipeBefore: (recipe: Recipe) => Promise<boolean>;
   recordRecipeHash: (recipe: Recipe) => Promise<boolean>;
   openDirectoryInExplorer: (directoryPath: string) => Promise<boolean>;
-  showItemInFolder: (fullPath: string) => Promise<boolean>;
+  showItemInFolder: (
+    fullPath: string
+  ) => Promise<{ ok: boolean; kind: 'dir' | 'file' | 'missing' }>;
+  tbResolveFile: (raw: string) => Promise<{ ok: boolean; path: string | null; reason: string }>;
   tbReadFile: (path: string) => Promise<{
     ok: boolean;
     encoding?: 'utf8' | 'base64';
@@ -313,6 +316,12 @@ type ElectronAPI = {
   tbWatchFile: (path: string) => Promise<boolean>;
   tbUnwatchFile: () => Promise<boolean>;
   onTbFileChanged: (cb: (path: string) => void) => () => void;
+  // TB-Software: Live-auto:*-Modelle vom Gateway (/v1/models) fuer das Dropdown.
+  tbAutoModels: () => Promise<{
+    ok: boolean;
+    error?: string;
+    models: Array<{ id: string; contextLimit?: number }>;
+  }>;
   // TB-Software: Wolke — PC als Wolken-Client (Milestone [13]).
   tbWolkeGet: () => Promise<{ config: TbWolkeConfig; status: TbWolkeStatus }>;
   tbWolkeSetConfig: (
@@ -511,6 +520,7 @@ const electronAPI: ElectronAPI = {
   openDirectoryInExplorer: (directoryPath: string) =>
     ipcRenderer.invoke('open-directory-in-explorer', directoryPath),
   showItemInFolder: (fullPath: string) => ipcRenderer.invoke('show-item-in-folder', fullPath),
+  tbResolveFile: (raw: string) => ipcRenderer.invoke('tb-resolve-file', raw),
   tbReadFile: (path: string) => ipcRenderer.invoke('tb-read-file', path),
   tbListDir: (dir: string) => ipcRenderer.invoke('tb-list-dir', dir),
   tbDictationCorrect: (rawText: string) => ipcRenderer.invoke('tb-dictation-correct', rawText),
@@ -527,6 +537,7 @@ const electronAPI: ElectronAPI = {
   tbToggleDevtools: () => ipcRenderer.invoke('tb-toggle-devtools'),
   tbOpenUpdateLog: () => ipcRenderer.invoke('tb-open-update-log'),
   tbSearch: (roots: string[], query: string) => ipcRenderer.invoke('tb-search', roots, query),
+  tbAutoModels: () => ipcRenderer.invoke('tb-auto-models'),
   tbWatchFile: (path: string) => ipcRenderer.invoke('tb-watch-file', path),
   tbUnwatchFile: () => ipcRenderer.invoke('tb-unwatch-file'),
   tbModulesCatalog: () => ipcRenderer.invoke('tb-modules-catalog'),

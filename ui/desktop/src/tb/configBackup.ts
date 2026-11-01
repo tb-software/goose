@@ -93,7 +93,7 @@ export function restoreFromBackup(): TbActionResult {
     const text = readIfExists(backupFile);
     if (text === null) return { ok: false, message: 'Kein Backup vorhanden.' };
     if (!isFunctionalConfigText(text)) {
-      return { ok: false, message: 'Das Backup ist ungültig oder zu klein — nicht wiederhergestellt.' };
+      return { ok: false, message: 'Das Backup ist ungültig oder zu klein, nicht wiederhergestellt.' };
     }
     // Aktuelle (evtl. kaputte) Config vorsichtshalber daneben ablegen.
     if (fs.existsSync(cfgFile)) {

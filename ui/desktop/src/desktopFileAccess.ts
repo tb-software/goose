@@ -1,4 +1,4 @@
-import fs from 'node:fs/promises';
+﻿import fs from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
 import type { Stats } from 'node:fs';
 import path from 'node:path';
@@ -117,6 +117,14 @@ export class DesktopFileAccess {
 
   unbindWindow(windowId: number): void {
     this.workingDirectories.delete(windowId);
+  }
+
+  // TB-Software: kanonisches Arbeitsverzeichnis des Fensters (oder null, wenn nicht gebunden oder
+  // nicht aufloesbar). Einzige autoritative Quelle fuer die Datei-Aufloesung (tb-resolve-file) -
+  // unabhaengig vom React-Context des Renderers.
+  getWorkingDirectory(windowId: number): string | null {
+    const binding = this.workingDirectories.get(windowId);
+    return binding && binding.status === 'ready' ? binding.path : null;
   }
 
   async readGoosehints(windowId: number): Promise<FileReadResult> {

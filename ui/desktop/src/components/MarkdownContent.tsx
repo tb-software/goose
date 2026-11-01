@@ -9,6 +9,7 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { toLocalFsPath } from '../tb/localPath';
 import { resolveChatPath } from '../tb/resolveChatPath';
+import { revealLocalPath } from '../tb/revealPath';
 import { useWorkingDir } from '../tb/WorkingDirContext';
 import { remarkLocalPaths } from '../tb/remarkLocalPaths';
 import { usePreview } from '../tb/preview/PreviewContext';
@@ -192,7 +193,7 @@ const MarkdownCode = memo(
             if (preview && kind !== 'unknown') {
               preview.open(inlinePath);
             } else {
-              void window.electron.showItemInFolder(inlinePath);
+              void revealLocalPath(inlinePath, workingDir);
             }
           }}
         >
@@ -344,7 +345,7 @@ const MarkdownContent = memo(function MarkdownContent({
                     if (preview && previewKindFor(localPath) !== 'unknown') {
                       preview.open(localPath);
                     } else {
-                      void window.electron.showItemInFolder(localPath);
+                      void revealLocalPath(localPath, workingDir);
                     }
                   } else {
                     void handleOpenExternal(props.href);

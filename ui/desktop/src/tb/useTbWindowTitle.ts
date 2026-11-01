@@ -7,6 +7,15 @@ import { ChatState } from '../types/chatState';
 import { tbListChats, tbSubscribeChats } from '../acp/chatSessionStore';
 
 const APP_NAME = 'TB-Goose';
+// Version einmal ermitteln und in den Fenstertitel schreiben, damit sie in jedem
+// Screenshot (Titelleiste) sichtbar ist - erleichtert das Zuordnen von Fehlerbildern.
+let APP_VERSION = '';
+try {
+  APP_VERSION = window.electron?.getVersion?.() ?? '';
+} catch {
+  APP_VERSION = '';
+}
+const APP_LABEL = APP_VERSION ? `${APP_NAME} ${APP_VERSION}` : APP_NAME;
 
 // Chats, die aktiv arbeiten bzw. auf eine (Nutzer-)Antwort warten -> zaehlen als "wartend".
 const BUSY_STATES = new Set<ChatState>([
@@ -48,7 +57,7 @@ export function useTbWindowTitle(
     let last = '';
     const apply = () => {
       const title = (chatTitle && chatTitle.trim()) || 'Neuer Chat';
-      let text = `${APP_NAME} — ${title} · ${statusLabel(chatState)}`;
+      let text = `${APP_LABEL} · ${title} · ${statusLabel(chatState)}`;
       // Andere Chats, die gerade arbeiten/warten (den aktuellen ausklammern).
       const busyOthers = tbListChats().filter(
         (c) => c.sessionId !== sessionId && c.hasSession && BUSY_STATES.has(c.chatState)
@@ -69,7 +78,7 @@ export function useTbWindowTitle(
       // Titel zuruecksetzen, sonst bleibt beim Verlassen/Schliessen des letzten aktiven
       // Chats der alte "TB-Goose — <Chat> · <Status>" stehen. Der naechste aktive Chat
       // ueberschreibt ohnehin sofort (gleicher Task -> kein sichtbares Flackern).
-      document.title = APP_NAME;
+      document.title = APP_LABEL;
     };
   }, [chatTitle, chatState, sessionId, isActive]);
 }

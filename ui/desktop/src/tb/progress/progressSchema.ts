@@ -122,7 +122,7 @@ function buildDetails(json: Record<string, unknown>): TbProgressDetail[] {
   const details: TbProgressDetail[] = [];
 
   const inputBytes = pickNumber(json, 'inputBytes');
-  if (inputBytes != null) details.push({ label: 'Groesse', value: fmtBytes(inputBytes) });
+  if (inputBytes != null) details.push({ label: 'Grösse', value: fmtBytes(inputBytes) });
 
   const audioSekunden = pickNumber(json, 'audioSekunden');
   if (audioSekunden != null) details.push({ label: 'Dauer', value: fmtSec(audioSekunden) });
@@ -149,7 +149,7 @@ function buildDetails(json: Record<string, unknown>): TbProgressDetail[] {
   const verbleibendCaSek = pickNumber(json, 'verbleibendCaSek');
   if (laufzeitSek != null) {
     const rest = verbleibendCaSek != null ? `   ·   Rest ca. ${fmtSec(verbleibendCaSek)}` : '';
-    details.push({ label: 'Laeuft', value: `${fmtSec(laufzeitSek)}${rest}` });
+    details.push({ label: 'Läuft', value: `${fmtSec(laufzeitSek)}${rest}` });
   }
 
   const letzterText = pickString(json, 'letzterText');

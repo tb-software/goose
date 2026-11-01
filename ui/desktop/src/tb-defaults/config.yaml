@@ -42,6 +42,13 @@ GOOSE_MAX_TURNS: 1000              # Sicherheitsnetz gegen Endlosschleifen
 # verarbeiten (Node haengt, 0 Tokens; LenaX-Warnung bestaetigt). 4096 laeuft zuverlaessig;
 # abgeschnittene Turns setzt der Agent dank finish_reason:length-Fix automatisch fort.
 GOOSE_MAX_TOKENS: 4096
+# Output-Budget NUR für die Verdichtungs-Zusammenfassung (Compaction), entkoppelt von
+# GOOSE_MAX_TOKENS: ein grosser Wert hier betrifft nur den seltenen Einzel-Request der
+# Verdichtung, nicht die Reservierung pro Turn (die bei grossen Werten Serving-Nodes hängen
+# liess). Ohne Eintrag gilt automatisch das Doppelte des Per-Turn-Budgets, also aktuell
+# 2 x 4096 = 8192. Nur setzen, wenn ein fester, von GOOSE_MAX_TOKENS unabhängiger Wert
+# gewünscht ist:
+# GOOSE_COMPACTION_MAX_TOKENS: 8192
 GOOSE_DISABLE_KEYRING: true        # Windows: Secrets ueber Env statt Keyring
 GOOSE_TELEMETRY_ENABLED: true      # Nutzungs-Events an EIGENES EU-PostHog; unterdrueckt Consent-Dialog
 # Toolshim AUS: native tool_calls (auto:code -> qwen3.8-27b) sind der zuverlaessige Weg.

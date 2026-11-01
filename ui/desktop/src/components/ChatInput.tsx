@@ -2004,7 +2004,7 @@ export default function ChatInput({
           extensions, diagnostics, attach, mic, send. When the bar is narrow
           (e.g. on a small window), the secondary controls drop out so the
           model selector + send button always stay visible. */}
-      <div ref={bottomBarRef} className="flex flex-row items-center gap-2 px-3 py-2 relative">
+      <div ref={bottomBarRef} className="flex flex-row flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2 relative">
         {/* Left: model selector */}
         <Tooltip>
           <div>

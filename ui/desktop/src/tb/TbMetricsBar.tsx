@@ -139,9 +139,25 @@ export const TbMetricsBar: React.FC<TbMetricsBarProps> = ({
   const limit = contextLimit ?? 0;
   const pct = limit > 0 ? Math.round((used / limit) * 100) : 0;
   const remaining = limit > 0 ? Math.max(0, limit - used) : 0;
+  // Installierte Version sichtbar machen, damit klar ist, ob wirklich die aktuelle laeuft.
+  const appVersion = (() => {
+    try {
+      return window.electron?.getVersion?.() || '';
+    } catch {
+      return '';
+    }
+  })();
 
   return (
     <div className="no-drag mx-4 mb-2 flex items-center gap-4 overflow-x-auto rounded-lg border border-border-subtle bg-background-muted px-3 py-1.5 text-[11px] text-text-muted">
+      {appVersion && (
+        <span
+          className="whitespace-nowrap font-medium text-text-standard tabular-nums"
+          title="Installierte TB-Goose-Version"
+        >
+          TB-Goose {appVersion}
+        </span>
+      )}
       <Stat
         icon={<MessageSquare className="w-3.5 h-3.5" />}
         label="Anfragen"
@@ -181,7 +197,7 @@ export const TbMetricsBar: React.FC<TbMetricsBarProps> = ({
           className="flex items-center gap-1.5 whitespace-nowrap text-text-accent"
           title={
             turnRemainingMs == null
-              ? 'Läuft — noch keine Prognose (zu wenig Verlauf).'
+              ? 'Läuft, noch keine Prognose (zu wenig Verlauf).'
               : `Verstrichen ${fmtMMSS(turnElapsedMs ?? 0)}, geschätzte Restzeit ~${fmtMMSS(
                   turnRemainingMs
                 )}${turnSource === 'ai' ? ' (KI-Schätzung)' : ' (aus bisherigen Turns)'}`

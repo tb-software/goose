@@ -8,6 +8,22 @@ import { Info } from 'lucide-react';
 interface ExtResult {
   name: string;
   success: boolean;
+  error?: string | null;
+}
+
+// TB-Software: aus dem (technischen) Fehlertext einen verstaendlichen Grund machen.
+// Wichtigster Fall: die Desktop-steuernden Singletons (ComputerUse) laufen pro PC nur
+// einmal - ein zweites TB-Goose-Fenster kann sie dann nicht nochmal starten.
+function friendlyReason(error?: string | null): string | null {
+  const e = (error ?? '').toLowerCase();
+  if (!e) return null;
+  if (/andere instanz|already running|laeuft bereits|läuft bereits/.test(e)) {
+    return 'läuft bereits in einem anderen TB-Goose-Fenster (pro PC nur einmal möglich)';
+  }
+  if (/tbrd|computer-?use/.test(e) && /(nicht|not).*(verbunden|connect|reach)/.test(e)) {
+    return 'kein laufender TBRD-Client gefunden';
+  }
+  return null;
 }
 
 type Phase = 'idle' | 'loading' | 'done';
@@ -81,9 +97,20 @@ export default function TbExtensionReadiness() {
           {ok} von {total} Erweiterungen verbunden - {failed.length} nicht erreichbar
         </div>
         <div className="text-text-secondary mt-1 break-words">
-          Nicht verbunden: {failed.map((f) => f.name).join(', ')}. Pruefen unter Einstellungen -
-          Erweiterungen (z. B. Computer-Steuerung braucht einen laufenden TBRD-Client; LenaX-DB laedt
-          beim ersten Start sein Modell).
+          Nicht verbunden:{' '}
+          {failed.map((f, i) => {
+            const reason = friendlyReason(f.error);
+            return (
+              <span key={f.name}>
+                {i > 0 ? ', ' : ''}
+                {f.name}
+                {reason ? ` (${reason})` : ''}
+              </span>
+            );
+          })}
+          . Prüfen unter Einstellungen - Erweiterungen (z. B. Computer-Steuerung braucht einen
+          laufenden TBRD-Client und läuft pro PC nur einmal; LenaX-DB lädt beim ersten Start sein
+          Modell).
         </div>
       </div>
       <button

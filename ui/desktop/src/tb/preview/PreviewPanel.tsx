@@ -1,8 +1,11 @@
-// TB-Software: Layout- + Render-Zuständigkeit des Vorschau-Panels (SRP).
+﻿// TB-Software: Layout- + Render-Zuständigkeit des Vorschau-Panels (SRP).
 // Datenzugriff läuft über window.electron.tbReadFile (kein direkter FS-Zugriff hier).
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { X, FolderOpen, FileWarning, RefreshCw, Copy } from 'lucide-react';
 import { copyAbsolutePath } from '../copyPath';
+import { revealLocalPath } from '../revealPath';
+import { useWorkingDir } from '../WorkingDirContext';
+import { findFileByName } from '../findFileByName';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import MarkdownContent from '../../components/MarkdownContent';
@@ -98,7 +101,10 @@ const PreviewBody: React.FC<{ path: string; reloadTick: number }> = ({ path, rel
   const [autoTick, setAutoTick] = useState(0);
   // TB-Software: Bei "Datei nicht gefunden" der naechstliegende echte Treffer im selben Ordner.
   const [suggestion, setSuggestion] = useState<{ path: string; name: string } | null>(null);
+  // Laeuft die (gebuendelte) Namenssuche in Unterordnern gerade?
+  const [searchingDeep, setSearchingDeep] = useState(false);
   const preview = usePreview();
+  const workingDir = useWorkingDir();
   const kind: PreviewKind = previewKindFor(path);
 
   // Beim Wechsel des Pfades: Ladehinweis zeigen + alten Inhalt verwerfen.
@@ -176,6 +182,28 @@ const PreviewBody: React.FC<{ path: string; reloadTick: number }> = ({ path, rel
     };
   }, [loading, res, path]);
 
+  // TB-Software: Datei nicht am aufgeloesten Pfad -> im Arbeitsverzeichnis (auch Unterordner)
+  // nach dem EXAKTEN Namen suchen und automatisch dorthin wechseln. Deckt den haeufigen Fall,
+  // dass das Modell nur den Dateinamen nennt (z. B. "flash_backup.py"), die Datei aber tiefer
+  // liegt als das Arbeitsverzeichnis.
+  useEffect(() => {
+    if (loading || !res || res.ok) return;
+    if (!/ENOENT|no such file|not found/i.test(res.error ?? '')) return;
+    if (!workingDir) return;
+    let alive = true;
+    setSearchingDeep(true);
+    findFileByName(workingDir, baseName(path))
+      .then((found) => {
+        if (alive && found && found !== path) preview?.open(found);
+      })
+      .finally(() => {
+        if (alive) setSearchingDeep(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [loading, res, path, workingDir, preview]);
+
   if (kind === 'unknown') {
     return (
       <Centered>
@@ -186,7 +214,7 @@ const PreviewBody: React.FC<{ path: string; reloadTick: number }> = ({ path, rel
             <button className="underline" onClick={() => void copyAbsolutePath(path)}>
               Pfad kopieren
             </button>
-            <button className="underline" onClick={() => void window.electron.showItemInFolder(path)}>
+            <button className="underline" onClick={() => void revealLocalPath(path)}>
               Im Explorer öffnen
             </button>
           </div>
@@ -206,6 +234,9 @@ const PreviewBody: React.FC<{ path: string; reloadTick: number }> = ({ path, rel
             <>
               <div>Datei nicht gefunden — evtl. verschoben oder umbenannt.</div>
               <MiddleTruncate text={path} tail={22} className="text-xs text-text-secondary max-w-full" />
+              {searchingDeep && (
+                <div className="text-xs text-text-secondary">Suche in Unterordnern …</div>
+              )}
               {suggestion && (
                 <div className="flex items-center gap-2 text-xs mt-1">
                   <span className="text-text-secondary">Meinten Sie:</span>
@@ -442,14 +473,14 @@ export const PreviewPanel: React.FC = () => {
             <button
               className="no-drag p-1.5 rounded hover:bg-background-tertiary text-text-secondary"
               title="Im Explorer anzeigen"
-              onClick={() => void window.electron.showItemInFolder(path)}
+              onClick={() => void revealLocalPath(path)}
             >
               <FolderOpen className="w-4 h-4" />
             </button>
           )}
           <button
             className="no-drag p-1.5 rounded hover:bg-background-tertiary text-text-secondary"
-            title="Schließen"
+            title="Schliessen"
             onClick={() => preview.close()}
           >
             <X className="w-4 h-4" />

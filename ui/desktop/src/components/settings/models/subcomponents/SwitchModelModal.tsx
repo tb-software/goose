@@ -27,6 +27,7 @@ import Model, {
   getProviderMetadata,
 } from '../modelInterface';
 import { getPredefinedModelsFromEnv, shouldShowPredefinedModels } from '../predefinedModelsUtils';
+import { fetchAutoModels } from '../../../../tb/autoModels';
 import type { ProviderDetails, ProviderType, ThinkingEffort } from '../../../../types/providers';
 import { trackModelChanged } from '../../../../utils/analytics';
 import { addToRecentModels } from '../../../../utils/recentModels';
@@ -480,15 +481,21 @@ export const SwitchModelModal = ({
   }, [currentModel, currentProvider, usePredefinedModels, provider, model, initialProvider]);
 
   useEffect(() => {
+    let alive = true;
     if (usePredefinedModels) {
-      const models = getPredefinedModelsFromEnv();
-      setPredefinedModels(models);
+      // Sofort die gebuendelte Liste zeigen (kein Flackern), dann LIVE vom Gateway (/v1/models)
+      // nachladen - so erscheinen neue auto:*-Kategorien (z. B. auto:fast) automatisch.
+      setPredefinedModels(getPredefinedModelsFromEnv());
+      void fetchAutoModels().then((live) => {
+        if (alive && live.length > 0) setPredefinedModels(live);
+      });
     }
 
     (async () => {
       try {
         const providersResponse = await acpListProviderDetails();
         const activeProviders = providersResponse.filter((provider) => provider.is_configured);
+        if (!alive) return;
         setActiveProvidersList(activeProviders);
         setProviderOptions([
           ...activeProviders.map(({ metadata, name }) => ({
@@ -504,6 +511,10 @@ export const SwitchModelModal = ({
         console.error('Failed to query providers:', error);
       }
     })();
+
+    return () => {
+      alive = false;
+    };
   }, [usePredefinedModels, intl]);
 
   useEffect(() => {

@@ -4,7 +4,7 @@
 import React, { useEffect, useState } from 'react';
 import TbModuleInstallOffer from './TbModuleInstallOffer';
 
-// TB-Software: Merker, dass das "Vollstaendige Installation"-Angebot bereits beantwortet wurde
+// TB-Software: Merker, dass das "Vollständige Installation"-Angebot bereits beantwortet wurde
 // (einmalig pro Geraet; nicht bei jedem Start neu fragen).
 const MODULE_OFFER_KEY = 'tb.modulesOffer.v1';
 function offerResolved(): boolean {
@@ -24,7 +24,7 @@ function markOfferResolved(): void {
 
 // Die drei Warntexte. Genau DIESE Texte werden auch im Audit gespeichert (Beweiskraft).
 const STEPS: string[] = [
-  'TB-Goose ist ein autonomer KI-Agent. Er kann auf diesem Computer selbstständig Dateien und Ordner ERSTELLEN, VERÄNDERN und UNWIDERRUFLICH LÖSCHEN — ohne einzelne Rückfrage und auch in großem Umfang.',
+  'TB-Goose ist ein autonomer KI-Agent. Er kann auf diesem Computer selbstständig Dateien und Ordner ERSTELLEN, VERÄNDERN und UNWIDERRUFLICH LÖSCHEN, ohne einzelne Rückfrage und auch in grossem Umfang.',
   'Dieser Zugriff ist NICHT auf diesen Computer begrenzt. Verbundene Netzlaufwerke, Server, freigegebene Ordner und jedes über dieses Gerät erreichbare System können ebenso verändert, beschädigt oder zerstört werden.',
   'Es gibt KEIN garantiertes Rückgängigmachen und KEIN automatisches Backup durch TB-Goose. Ich nutze TB-Goose auf eigenes Risiko und übernehme die VOLLE VERANTWORTUNG für alle Aktionen, die der Agent in meinem Namen ausführt.',
   'Datenschutz & dauerhafte Speicherung: Eingaben, Chats, Zusammenfassungen und daraus abgeleitete Daten (z. B. die Wissens-Ablage) können DAUERHAFT und potenziell UNBEGRENZT auf diesem Gerät und in verbundenen Systemen gespeichert und weiterverarbeitet werden. Mit meiner Bestätigung willige ich ausdrücklich in diese Verarbeitung und dauerhafte Speicherung ein (Datenschutz/DSGVO) und bestätige, dass ich dazu berechtigt bin.',
@@ -294,7 +294,7 @@ export default function RiskConsentGate({ children }: { children: React.ReactNod
                 ? 'Wird gespeichert…'
                 : isLastStep
                   ? 'Endgültig zustimmen & starten'
-                  : `Bestätigen (${step + 1}/${STEPS.length}) — weiter`}
+                  : `Bestätigen (${step + 1}/${STEPS.length}) · weiter`}
             </button>
           </div>
 

@@ -1,4 +1,4 @@
-// TB-Software: Bottom-Bar-Anzeige + Umschalter für den Werkzeug-Modus (GOOSE_TOOLSHIM).
+﻿// TB-Software: Bottom-Bar-Anzeige + Umschalter für den Werkzeug-Modus (GOOSE_TOOLSHIM).
 // "Nativ" (Toolshim AUS) = native tool_calls, zuverlässig, für ALLE gericom-Modelle (auto:code UND
 // auto:chat=Qwen3.6). "Kompatibel" (Toolshim AN) = Aufrufe werden aus TEXT geparst; braucht einen
 // lokalen Ollama-Interpreter, der am Anwender-PC fehlt -> Aufrufe blieben sonst als Text stehen.
@@ -51,11 +51,17 @@ export const TbToolshimToggle: React.FC<{ model?: string | null }> = ({ model })
 
   const title = mismatch
     ? recommendedToolshim(model)
-      ? `⚠ ${model} braucht „Kompatibel" — im Modus „Nativ" führt es keine Werkzeuge aus. Klick zum Beheben.`
-      : `⚠ ${model} braucht „Nativ" — im Modus „Kompatibel" bleiben Werkzeug-Aufrufe als Text stehen (kein lokaler Ollama-Interpreter). Klick zum Beheben.`
+      ? `⚠ ${model} braucht „Kompatibel": im Modus „Nativ" führt es keine Werkzeuge aus. Klick zum Beheben.`
+      : `⚠ ${model} braucht „Nativ": im Modus „Kompatibel" bleiben Werkzeug-Aufrufe als Text stehen (kein lokaler Ollama-Interpreter). Klick zum Beheben.`
     : enabled
-      ? 'Werkzeug-Modus: KOMPATIBEL — Werkzeuge laufen über lokales Text-Parsing (braucht lokalen Ollama-Interpreter). Für die gericom-Modelle NICHT nötig. Klick für Nativ.'
-      : 'Werkzeug-Modus: NATIV — schnelle native Werkzeug-Aufrufe (auto:code UND auto:chat). Empfohlen. Klick für Kompatibel.';
+      ? 'Werkzeug-Modus KOMPATIBEL: Werkzeuge laufen über lokales Text-Parsing (braucht lokalen Ollama-Interpreter). Für die gericom-Modelle NICHT nötig. Klick für Nativ.'
+      : 'Werkzeug-Modus NATIV: schnelle native Werkzeug-Aufrufe (auto:code UND auto:chat). Empfohlen. Klick für Kompatibel.';
+
+  // TB-Software (Plan 03, 3b): Im Default-Zustand (Nativ) NICHT in der unteren Chat-Leiste zeigen -
+  // nur bei Nicht-Default (Kompatibel aktiv) oder einer Fehl-Kombi (rote Warnung). Das Umschalten
+  // bleibt ueber "Werkzeuge & Debug" erreichbar.
+  const isVisible = mismatch || enabled;
+  if (!isVisible) return null;
 
   return (
     <button

@@ -39,17 +39,17 @@ export const MODULE_CATALOG: ModuleEntry[] = [
   {
     key: 'lenax-db',
     name: 'LenaX-DB',
-    description: 'Lokale Wissens-/Suchdatenbank (RAG). Gehirn fuer Suche und den Support-Assistenten.',
+    description: 'Lokale Wissens-/Suchdatenbank (RAG). Gehirn für Suche und den Support-Assistenten.',
     feedUrl: 'https://t78.ch/apps/lenaxdb/downloads/latest.ashx',
     installDir: 'LenaX-DB',
     verifyRel: path.join('mcp', 'lenaxdb-mcp.exe'),
     type: 'mcp',
-    note: 'Enthaelt die Embedding-Modelle (groesserer Download).',
+    note: 'Enthält die Embedding-Modelle (grösserer Download).',
   },
   {
     key: 'lenax-ipforward',
     name: 'IP-Forwarder',
-    description: 'Fuehrt Web-Requests transparent ueber einen Fleet-Client aus (ipforward-Tunnel).',
+    description: 'Führt Web-Requests transparent über einen Fleet-Client aus (ipforward-Tunnel).',
     feedUrl: 'https://t78.ch/apps/proxy/downloads/lenax-ipforward/latest.ashx',
     installDir: 'LenaX-IPForward',
     verifyRel: 'lenax-ipforward-mcp.exe',
@@ -80,7 +80,7 @@ export const MODULE_CATALOG: ModuleEntry[] = [
   {
     key: 'support-assistant',
     name: 'Support-Assistent (Systray)',
-    description: 'Ruhiger Assistent im Infobereich: suchen, fragen, (spaeter) mitlesen/nachfragen.',
+    description: 'Ruhiger Assistent im Infobereich: suchen, fragen, (später) mitlesen/nachfragen.',
     feedUrl: 'https://t78.ch/apps/proxy/downloads/support-assistant/latest.ashx',
     installDir: 'LenaX-SupportAssistant',
     verifyRel: 'LenaX.SupportAssistant.exe',
@@ -192,7 +192,7 @@ async function registerAutostartAndLaunch(mod: ModuleEntry, exe: string): Promis
 
 async function installOne(mod: ModuleEntry): Promise<ModuleResult> {
   if (!mod.feedUrl) {
-    return { key: mod.key, name: mod.name, ok: false, detail: 'kein Feed veroeffentlicht - uebersprungen' };
+    return { key: mod.key, name: mod.name, ok: false, detail: 'kein Feed veröffentlicht - übersprungen' };
   }
   const target = path.join(applicationsBase(), mod.installDir);
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'tbmod-'));
@@ -213,7 +213,7 @@ async function installOne(mod: ModuleEntry): Promise<ModuleResult> {
         key: mod.key,
         name: mod.name,
         ok: false,
-        detail: `entpackt, aber erwartete Datei fehlt (${mod.verifyRel}) - Archiv-Layout pruefen`,
+        detail: `entpackt, aber erwartete Datei fehlt (${mod.verifyRel}) - Archiv-Layout prüfen`,
       };
     }
     if (mod.type === 'app') {
@@ -251,7 +251,7 @@ export async function installModules(
   // Module ohne Feed als uebersprungen melden (nur beim Gesamtlauf, nicht bei Einzel-Install).
   if (!onlyKey) {
     for (const mod of MODULE_CATALOG.filter((m) => m.feedUrl === null)) {
-      results.push({ key: mod.key, name: mod.name, ok: false, detail: 'kein Feed veroeffentlicht - uebersprungen' });
+      results.push({ key: mod.key, name: mod.name, ok: false, detail: 'kein Feed veröffentlicht - übersprungen' });
     }
   }
   return results;

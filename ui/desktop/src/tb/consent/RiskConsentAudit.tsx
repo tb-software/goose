@@ -31,7 +31,7 @@ export default function RiskConsentAudit() {
   }, []);
 
   const fmt = (iso?: string) => {
-    if (!iso) return '—';
+    if (!iso) return '-';
     try {
       return new Date(iso).toLocaleString('de-CH');
     } catch {

@@ -37,6 +37,12 @@ export function composeQualityBody(params: QualityParams, roles: Role[]): string
       `Höchstens ${params.reviewerRounds} Korrekturrunde(n); höre früher auf, wenn eine Runde nichts Wesentliches mehr ändert.`
     );
   }
+  
+  if (params.loopBudget > 0) {
+    lines.push(
+      `Bis zu ${params.loopBudget} Verbesserungs-/Prüf-Durchläufe; brich früher ab, wenn eine Runde nichts Wesentliches mehr ändert.`
+    );
+  }
   lines.push(
     `Grenzen für diesen Zug: bis ${params.tokenCap} Token und ${Math.round(params.timeCapMs / 1000)} Sekunden. Halte dich knapp an das Ziel.`
   );

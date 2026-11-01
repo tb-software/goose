@@ -100,7 +100,7 @@ export const PapierkorbView: React.FC = () => {
                 <div className="flex-1 min-w-0">
                   <div className="text-sm text-text-primary truncate">{s.name || 'Chat'}</div>
                   <div className="text-xs text-text-secondary truncate">
-                    {s.workingDir || '—'} · noch {left} Tag{left === 1 ? '' : 'e'}
+                    {s.workingDir || '-'} · noch {left} Tag{left === 1 ? '' : 'e'}
                   </div>
                 </div>
                 <button

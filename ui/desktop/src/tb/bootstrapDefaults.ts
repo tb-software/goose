@@ -17,12 +17,16 @@ import log from '../utils/logger';
 // gericom-Proxy, alle cost 0). Der Nutzer waehlt die AUFGABE, das Gateway routet auf
 // das passende freie Fleet-Modell. Erscheinen als kuratierte Modell-Liste im Dropdown.
 // Default bleibt auto:code (siehe GOOSE_DEFAULT_MODEL unten + config.yaml GOOSE_MODEL).
+// Nur der OFFLINE-Fallback (und Quelle fuer die Footer-Anzeige des aktuellen Modells). Das
+// Dropdown wird im Betrieb LIVE aus /v1/models gespeist (siehe tb/autoModels.ts), damit neue
+// Kategorien automatisch erscheinen. Beschreibungen NEUTRAL: das Gateway routet dynamisch, ein
+// konkret genanntes Backend-Modell ("Qwen"/"Mistral") waere irrefuehrend.
 const TB_AUTO_MODELS = [
   {
     name: 'auto:code',
     provider: 'openai',
     alias: 'Auto: Code',
-    subtext: 'Coding · Werkzeuge · Reasoning (Qwen) — Standard',
+    subtext: 'Coding, Werkzeuge, starkes Reasoning · Standard',
     context_limit: 262144,
     reasoning: true,
   },
@@ -30,23 +34,37 @@ const TB_AUTO_MODELS = [
     name: 'auto:chat',
     provider: 'openai',
     alias: 'Auto: Chat',
-    subtext: 'Schneller Chat mit Werkzeugen (Qwen3.6)',
+    subtext: 'Schneller Chat mit Werkzeugen',
+    context_limit: 131072,
+  },
+  {
+    name: 'auto:fast',
+    provider: 'openai',
+    alias: 'Auto: Fast',
+    subtext: 'Schnellste Antwort, einfache Aufgaben',
     context_limit: 131072,
   },
   {
     name: 'auto:vision',
     provider: 'openai',
     alias: 'Auto: Vision',
-    subtext: 'Bilder/Screenshots erkennen (Mistral VLM)',
+    subtext: 'Bilder und Screenshots erkennen',
     context_limit: 131072,
   },
   {
     name: 'auto:image',
     provider: 'openai',
     alias: 'Auto: Image',
-    subtext: 'Höhere Bildqualität (Qwen)',
+    subtext: 'Höhere Bildqualität',
     context_limit: 262144,
     reasoning: true,
+  },
+  {
+    name: 'auto:uncensored',
+    provider: 'openai',
+    alias: 'Auto: Uncensored',
+    subtext: 'Ohne Inhaltsfilter',
+    context_limit: 131072,
   },
   {
     name: '*',
@@ -287,7 +305,7 @@ const MANAGED_MCPS: ManagedMcp[] = [
     key: 'lenax-flow',
     name: 'LenaX-Flow',
     description:
-      'LenaX-Flow - n8n-Automationen als Werkzeuge (flow_list, flow_run, flow_ping). Bruecke zu den n8n-Workflows.',
+      'LenaX-Flow - n8n-Automationen als Werkzeuge (flow_list, flow_run, flow_ping). Brücke zu den n8n-Workflows.',
     exeName: 'lenax-flow-mcp.exe',
     exeCandidates: [
       'D:\\_AI\\Applications\\LenaX-Flow\\lenax-flow-mcp.exe',
@@ -298,7 +316,7 @@ const MANAGED_MCPS: ManagedMcp[] = [
     key: 'lenax-ipforward',
     name: 'LenaX-IPForward',
     description:
-      'LenaX IP-Forward - fuehrt Web-Requests transparent ueber einen Fleet-Client aus (ipforward-Tunnel).',
+      'LenaX IP-Forward - führt Web-Requests transparent über einen Fleet-Client aus (ipforward-Tunnel).',
     exeName: 'lenax-ipforward-mcp.exe',
     exeCandidates: [
       'D:\\_AI\\Applications\\LenaX-IPForward\\lenax-ipforward-mcp.exe',
@@ -387,7 +405,7 @@ function seedManagedMcp(cfgDir: string, spec: ManagedMcp): void {
     fs.writeFileSync(cfgFile, doc.toString());
     log.info(`[TB] ${spec.name}: MCP eingetragen -> ${exe}`);
   } catch (e) {
-    log.error(`[TB] Seeding fehlgeschlagen fuer ${spec.key}`, e);
+    log.error(`[TB] Seeding fehlgeschlagen für ${spec.key}`, e);
   }
 }
 
@@ -459,7 +477,7 @@ function ensureCanvioHint(hintsDst: string, hintsSrc: string): void {
     const block = srcText.slice(s, e + CANVIO_HINT_END.length);
     const updated = current.replace(/\s*$/, '') + '\n\n' + block + '\n';
     fs.writeFileSync(hintsDst, updated);
-    log.info('[TB] Canvio-Hinweis an bestehende .goosehints angehaengt.');
+    log.info('[TB] Canvio-Hinweis an bestehende .goosehints angehängt.');
   } catch (err) {
     log.error('[TB] ensureCanvioHint fehlgeschlagen', err);
   }
@@ -661,7 +679,7 @@ export function ensureLenaxDbExtension(
     }
 
     if (!found && !opts.writePlaceholderIfMissing) {
-      log.info('[TB] LenaX-DB MCP nicht gefunden — in den Einstellungen manuell konfigurierbar.');
+      log.info('[TB] LenaX-DB MCP nicht gefunden, in den Einstellungen manuell konfigurierbar.');
       return;
     }
 
@@ -678,18 +696,18 @@ export function ensureLenaxDbExtension(
       type: 'stdio',
       name: 'LenaX-DB',
       description: found
-        ? 'LenaX-DB — lokale Wissens-/RAG-Datenbank (Dateisystem-Index)'
-        : 'LenaX-DB — nicht gefunden. Pfad zur mcp\\lenaxdb-mcp.exe setzen und aktivieren.',
+        ? 'LenaX-DB: lokale Wissens-/RAG-Datenbank (Dateisystem-Index)'
+        : 'LenaX-DB nicht gefunden. Pfad zur mcp\\lenaxdb-mcp.exe setzen und aktivieren.',
       cmd: exe,
       args: lenaxArgs(cfg),
-      // Startaufbau des Embedders (ONNX) kann einige Sekunden dauern -> großzügig.
+      // Startaufbau des Embedders (ONNX) kann einige Sekunden dauern -> grosszügig.
       timeout: 300,
       env_keys: [],
       bundled: false,
     });
     fs.writeFileSync(cfgFile, doc.toString());
     log.info(
-      `[TB] LenaX-DB MCP eingetragen: ${exe}${found ? '' : ' (Platzhalter — Pfad ggf. anpassen)'}${cfg ? ' (--config ' + cfg + ')' : ' (Default-Config)'}`
+      `[TB] LenaX-DB MCP eingetragen: ${exe}${found ? '' : ' (Platzhalter, Pfad ggf. anpassen)'}${cfg ? ' (--config ' + cfg + ')' : ' (Default-Config)'}`
     );
   } catch (e) {
     log.error('[TB] LenaX-DB-Extension-Seeding fehlgeschlagen', e);
