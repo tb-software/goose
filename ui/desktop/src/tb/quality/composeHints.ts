@@ -43,9 +43,8 @@ export function composeQualityBody(params: QualityParams, roles: Role[]): string
       `Bis zu ${params.loopBudget} Verbesserungs-/Prüf-Durchläufe; brich früher ab, wenn eine Runde nichts Wesentliches mehr ändert.`
     );
   }
-  lines.push(
-    `Grenzen für diesen Zug: bis ${params.tokenCap} Token und ${Math.round(params.timeCapMs / 1000)} Sekunden. Halte dich knapp an das Ziel.`
-  );
+  // Bewusst KEIN Token-Deckel als Direktive (Timo 01.11.: "ein Token-Max ist wenig hilfreich").
+  // Qualitaet skaliert ueber Rollen (Worker/Subagenten) und Loop, nicht ueber Token-/Zeit-Zahlen.
   return lines.join('\n');
 }
 

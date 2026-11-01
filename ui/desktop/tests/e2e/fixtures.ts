@@ -55,6 +55,9 @@ export const test = base.extend<GooseTestFixtures>({
           NODE_ENV: 'development',
           GOOSE_ALLOWLIST_BYPASS: 'true',
           ENABLE_PLAYWRIGHT: 'true',
+          // TB-Software: schaltet NUR im E2E-Lauf die Erstlauf-Gates (Consent + Zusatzmodul-Angebot)
+          // frei (window.electron.isE2E), damit der Test das ganze Programm mit allen Tools erreicht.
+          TB_E2E: 'true',
           PLAYWRIGHT_DEBUG_PORT: debugPort.toString(), // Unique port per test for parallel execution
           RUST_LOG: 'info', // Enable info-level logging for goosed backend
         }

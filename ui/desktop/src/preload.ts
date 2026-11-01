@@ -158,6 +158,9 @@ export type TbQualityRole = {
 type ElectronAPI = {
   platform: string;
   arch: string;
+  // TB-Software: true nur im automatisierten E2E-Lauf (ENABLE_PLAYWRIGHT/TB_E2E vom Test-Runner
+  // gesetzt). Nie in Produktion. Erlaubt dem Renderer, die Erstlauf-Gates im Test zu ueberspringen.
+  isE2E: boolean;
   reactReady: () => void;
   getConfig: () => Record<string, unknown>;
   hideWindow: () => void;
@@ -370,6 +373,10 @@ type AppConfigAPI = {
 const electronAPI: ElectronAPI = {
   platform: process.platform,
   arch: process.arch,
+  // Nur im E2E-Testlauf gesetzt. Bewusst NUR das sehr spezifische TB_E2E (gesetzt in
+  // tests/e2e/fixtures.ts), NICHT das generische ENABLE_PLAYWRIGHT - damit der Sicherheits-Consent
+  // nicht versehentlich durch eine fremde Playwright-Umgebung umgangen wird. In echten Builds false.
+  isE2E: !!process.env.TB_E2E,
   reactReady: () => ipcRenderer.send('react-ready'),
   getConfig: () => {
     if (!config || Object.keys(config).length === 0) {

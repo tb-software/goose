@@ -15,7 +15,6 @@ describe('Qualitaetsregler - 10 Testfaelle', () => {
     expect(p.lenaxIntensity).toBe(0);
     expect(p.reviewerRounds).toBe(0);
     expect(p.loopBudget).toBe(0);
-    expect(p.compactionMaxTokens).toBe(0); // kein Backend-Hebel -> uebliche LLM-Aufrufe
     expect(p.autonomie).toBe('smart_approve');
     expect(p.rollenTiefe).toBe('keine');
     const roles = selectRoles({ topic: 'code', params: p, mode: 'auto' });
@@ -36,7 +35,7 @@ describe('Qualitaetsregler - 10 Testfaelle', () => {
 
   // 3
   it('Monotonie: keine fallenden Werte mit steigender Stufe', () => {
-    const keys = ['lenaxIntensity', 'reviewerRounds', 'loopBudget', 'tokenCap', 'timeCapMs', 'compactionMaxTokens'] as const;
+    const keys = ['lenaxIntensity', 'reviewerRounds', 'loopBudget', 'tokenCap', 'timeCapMs'] as const;
     for (let s = 2; s <= 10; s++) {
       const a = qualityParams(s - 1);
       const b = qualityParams(s);
@@ -147,13 +146,6 @@ describe('Qualitaetsregler - 10 Testfaelle', () => {
     }
     const caps = Array.from({ length: 10 }, (_, i) => qualityParams(i + 1).tokenCap);
     expect(Math.min(...caps)).toBe(qualityParams(1).tokenCap);
-  });
-
-  // 11: realer Backend-Hebel Compaction - niedrige Stufen beim Default, hohe Stufen heben an.
-  it('Compaction-Budget: Stufe 1..5 = 0 (Default), ab Stufe 6 real und steigend', () => {
-    for (let s = 1; s <= 5; s++) expect(qualityParams(s).compactionMaxTokens).toBe(0);
-    expect(qualityParams(6).compactionMaxTokens).toBeGreaterThan(0);
-    expect(qualityParams(10).compactionMaxTokens).toBeGreaterThan(qualityParams(6).compactionMaxTokens);
   });
 });
 

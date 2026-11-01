@@ -18,7 +18,6 @@ export interface QualityParams {
   nachfassen: boolean; // ab Stufe 10: "Vergessen?"-Nachfassen auf die Verdichtung
   tokenCap: number; // Token-Deckel je Zug
   timeCapMs: number; // Wanduhr-Deckel je Zug
-  compactionMaxTokens: number; // realer Backend-Hebel: Output-Budget der Verdichtung (0 = Backend-Default)
 }
 
 // Absolute letzte Reissleine, unabhaengig von der Stufe.
@@ -37,10 +36,6 @@ const REVIEWER = [0, 1, 1, 2, 2, 2, 3, 3, 4, 5];
 const LOOP = [0, 0, 0, 2, 2, 4, 4, 6, 6, 8];
 const TOKEN_CAP = [8000, 8000, 8000, 16000, 16000, 24000, 40000, 40000, 60000, 80000];
 const TIME_CAP_MS = [30000, 30000, 45000, 60000, 90000, 120000, 180000, 240000, 360000, HARD_CEILING_MS];
-// Realer Backend-Hebel: Output-Budget der Verdichtung (GOOSE_COMPACTION_MAX_TOKENS). 0 = nicht
-// setzen -> Backend-Default (2x Per-Turn-Budget). Niedrige Stufen bleiben bewusst beim Default
-// ("uebliche LLM-Aufrufe"), erst hoehere Stufen lassen die Zusammenfassung mehr Detail halten.
-const COMPACTION_MAX_TOKENS = [0, 0, 0, 0, 0, 16000, 24000, 32000, 48000, 64000];
 
 function denkAufwand(stufe: number): DenkAufwand {
   if (stufe <= 3) return 'niedrig';
@@ -72,6 +67,5 @@ export function qualityParams(stufeRaw: number): QualityParams {
     nachfassen: stufe >= 10,
     tokenCap: TOKEN_CAP[i],
     timeCapMs: Math.min(TIME_CAP_MS[i], HARD_CEILING_MS),
-    compactionMaxTokens: COMPACTION_MAX_TOKENS[i],
   };
 }

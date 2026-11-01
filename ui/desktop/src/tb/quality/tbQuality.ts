@@ -3,7 +3,6 @@
 import { ipcMain } from 'electron';
 import log from '../../utils/logger';
 import { readQualityConfig, writeQualityConfig, mergeQualityConfig, type QualityConfig } from './qualityConfig';
-import { qualityParams } from './qualityPolicy';
 import { DEFAULT_ROLES, type Role } from './roles';
 import { applyQualityHint, rolesForConfig } from './qualityApply';
 
@@ -37,19 +36,6 @@ export function registerTbQualityIpc(): void {
   ipcMain.handle('tb-quality-roles', () =>
     DEFAULT_ROLES.map((r) => ({ id: r.id, name: r.name, type: r.type, always: r.always, minStufe: r.minStufe }))
   );
-}
-
-// Realer Backend-Hebel beim goosed-Start: das Verdichtungs-Budget je Qualitaetsstufe als
-// GOOSE_COMPACTION_MAX_TOKENS an den Backend-Prozess geben. 0 -> undefined (nicht setzen, der
-// Backend-Default greift). Env wird je neuem Chat/goosed-Start aus dem aktuellen Stand gelesen.
-export function qualityCompactionBudgetEnv(): string | undefined {
-  try {
-    const budget = qualityParams(readQualityConfig().stufe).compactionMaxTokens;
-    return budget > 0 ? String(budget) : undefined;
-  } catch (e) {
-    log.error('[TB][quality] qualityCompactionBudgetEnv fehlgeschlagen', e);
-    return undefined;
-  }
 }
 
 // Beim App-Start den gespeicherten Stand in die .goosehints spiegeln.

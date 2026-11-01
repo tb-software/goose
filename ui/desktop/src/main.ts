@@ -35,7 +35,7 @@ import { catalogForDisplay, installModules, moduleStatus } from './tb/modules/mo
 import { registerRiskConsentIpc } from './tb/consent/riskConsent';
 import { registerTbTagsIpc } from './tb/tags/tbTags';
 import { registerTbWolkeIpc } from './tb/wolke/tbWolke';
-import { registerTbQualityIpc, initQuality, qualityCompactionBudgetEnv } from './tb/quality/tbQuality';
+import { registerTbQualityIpc, initQuality } from './tb/quality/tbQuality';
 import { initWolke } from './tb/wolke/wolkeBridge';
 import { registerTbArchiveIpc } from './tb/chats/tbArchive';
 import { registerTbForecastIpc } from './tb/status/tbForecast';
@@ -1340,9 +1340,6 @@ const createChat = async (
         env: {
           GOOSE_PATH_ROOT: appConfig.GOOSE_PATH_ROOT as string | undefined,
           TB_KNOWLEDGE_SPOOL_DIR: knowledgeSpool,
-          // TB-Software [19/2b]: Qualitaetsregler als realer Hebel - hoehere Stufe gibt der
-          // Verdichtung ein groesseres Output-Budget. undefined bei niedriger Stufe (Backend-Default).
-          GOOSE_COMPACTION_MAX_TOKENS: qualityCompactionBudgetEnv(),
         },
         loginShellPath,
         isPackaged: app.isPackaged,

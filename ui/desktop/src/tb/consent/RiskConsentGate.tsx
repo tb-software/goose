@@ -52,6 +52,13 @@ export default function RiskConsentGate({ children }: { children: React.ReactNod
 
   useEffect(() => {
     let cancelled = false;
+    // TB-Software: Im automatisierten E2E-Lauf (ENABLE_PLAYWRIGHT) die Erstlauf-Gates (Consent +
+    // Zusatzmodul-Angebot) ueberspringen, damit der Test das ganze Programm mit allen Tools direkt
+    // bedienen kann. Greift nie in echten Builds (isE2E ist dort immer false).
+    if (window.electron.isE2E) {
+      setState('accepted');
+      return;
+    }
     const p = window.electron.tbGetRiskConsent?.();
     if (!p) {
       // Preload kennt die API nicht (alter Build) -> sicherheitshalber blockieren.
