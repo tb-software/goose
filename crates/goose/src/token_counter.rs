@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use tiktoken_rs::CoreBPE;
 use tokio::sync::OnceCell;
 
-use crate::conversation::message::Message;
+use crate::conversation::message::{Message, MessageContent};
 
 static TOKENIZER: OnceCell<Arc<CoreBPE>> = OnceCell::const_new();
 
@@ -18,6 +18,19 @@ const PROP_KEY: usize = 3;
 const ENUM_INIT: isize = -3;
 const ENUM_ITEM: usize = 3;
 const FUNC_END: usize = 12;
+
+// TB-Software: Bilder zaehlten bisher 0 Tokens (kein Image-Zweig) -> bei Vision/OCR war jede
+// Kontext-Schaetzung wertlos und die Verdichtung feuerte viel zu spaet. Wir schaetzen pro Bild
+// statt 0: ein Grundwert (Gateway-Tiling ~1 Kachel) plus ein groessen-abhaengiger Aufschlag aus
+// der base64-Laenge (grosse Scans = mehr Kacheln). Bewusst leicht nach oben gerundet (Headroom),
+// damit lieber etwas zu frueh als zu spaet verdichtet wird. Deckt KEINE Bilder in Tool-Antworten.
+const IMAGE_TOKENS_MIN: usize = 1200;
+const IMAGE_TOKENS_MAX: usize = 8000;
+const IMAGE_BASE64_CHARS_PER_TOKEN: usize = 350;
+
+fn estimate_image_tokens(base64_len: usize) -> usize {
+    (IMAGE_TOKENS_MIN + base64_len / IMAGE_BASE64_CHARS_PER_TOKEN).min(IMAGE_TOKENS_MAX)
+}
 
 pub struct TokenCounter {
     tokenizer: Arc<CoreBPE>,
@@ -157,6 +170,8 @@ impl TokenCounter {
                     }
                 } else if let Some(tool_response_text) = content.as_tool_response_text() {
                     num_tokens += self.count_tokens(&tool_response_text);
+                } else if let MessageContent::Image(image) = content {
+                    num_tokens += estimate_image_tokens(image.data.len());
                 }
             }
         }
@@ -219,6 +234,30 @@ pub async fn create_token_counter() -> Result<TokenCounter, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn estimate_image_tokens_nonzero_scales_and_caps() {
+        assert_eq!(estimate_image_tokens(0), IMAGE_TOKENS_MIN);
+        assert!(estimate_image_tokens(350_000) > IMAGE_TOKENS_MIN);
+        assert_eq!(estimate_image_tokens(usize::MAX), IMAGE_TOKENS_MAX);
+    }
+
+    #[tokio::test]
+    async fn image_messages_are_not_counted_as_zero_tokens() {
+        let counter = create_token_counter().await.unwrap();
+        let data = "A".repeat(100_000);
+        let image_msg = Message::user().with_image(data, "image/png");
+        let text_msg = Message::user().with_text("hi");
+
+        let image_tokens = counter.count_chat_tokens("", std::slice::from_ref(&image_msg), &[]);
+        let text_tokens = counter.count_chat_tokens("", std::slice::from_ref(&text_msg), &[]);
+
+        assert!(
+            image_tokens >= IMAGE_TOKENS_MIN,
+            "an image must count real tokens, got {image_tokens}"
+        );
+        assert!(image_tokens > text_tokens);
+    }
 
     #[tokio::test]
     async fn test_token_caching() {
