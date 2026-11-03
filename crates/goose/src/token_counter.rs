@@ -168,8 +168,18 @@ impl TokenCounter {
                         );
                         num_tokens += self.count_tokens(&text);
                     }
-                } else if let Some(tool_response_text) = content.as_tool_response_text() {
-                    num_tokens += self.count_tokens(&tool_response_text);
+                } else if let Some(tool_response) = content.as_tool_response() {
+                    // Text UND Bilder im Tool-Result zaehlen (OCR-/Screenshot-Tools liefern
+                    // Bilder; die zaehlten bisher 0 - wie die Bilder in Nachrichten vor 1.53.48).
+                    if let Ok(result) = &tool_response.tool_result {
+                        for block in &result.content {
+                            if let Some(text) = block.as_text() {
+                                num_tokens += self.count_tokens(&text.text);
+                            } else if let rmcp::model::ContentBlock::Image(image) = block {
+                                num_tokens += estimate_image_tokens(image.data.len());
+                            }
+                        }
+                    }
                 } else if let MessageContent::Image(image) = content {
                     num_tokens += estimate_image_tokens(image.data.len());
                 }
@@ -257,6 +267,19 @@ mod tests {
             "an image must count real tokens, got {image_tokens}"
         );
         assert!(image_tokens > text_tokens);
+    }
+
+    #[tokio::test]
+    async fn tool_response_images_are_counted() {
+        use rmcp::model::{CallToolResult, ContentBlock, ImageContent};
+        let counter = create_token_counter().await.unwrap();
+        let img = ContentBlock::Image(ImageContent::new("A".repeat(50_000), "image/png"));
+        let msg = Message::user().with_tool_response("t0", Ok(CallToolResult::success(vec![img])));
+        let tokens = counter.count_chat_tokens("", std::slice::from_ref(&msg), &[]);
+        assert!(
+            tokens >= IMAGE_TOKENS_MIN,
+            "an image in a tool response must count real tokens, got {tokens}"
+        );
     }
 
     #[tokio::test]
