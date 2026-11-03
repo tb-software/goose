@@ -1,4 +1,13 @@
 mod agent;
+// TB-Software: role_orchestrator ist ein unfertiger Phase-B-Stub gegen eine nicht
+// existierende Agent-API (Agent::new(..)/agent.run(..)) und kompiliert nicht. Bis er gegen
+// das echte Agent-Interface neu geschrieben ist, bleibt er aus dem Modulbaum (Datei liegt
+// weiter unter agents/role_orchestrator.rs).
+// pub mod role_orchestrator;
+pub mod quality_measurer;
+pub mod llm_notation;
+pub mod notation_metrics;
+pub mod baseline_data;
 pub mod container;
 pub mod execute_commands;
 pub mod extension;

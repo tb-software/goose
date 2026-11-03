@@ -146,6 +146,59 @@ console.log(html);
     });
   });
 
+  describe('Windows Paths (backslash escaping)', () => {
+    it('rendert einen Backslash-Pfad mit Unterstrich verbatim (G:\\_AI, nicht G:_AI)', async () => {
+      const { container } = renderWithIntl(<MarkdownContent content={'G:\\_AI'} />);
+
+      await waitFor(() => {
+        // Der Backslash DARF NICHT verschluckt werden (CommonMark-Escape-Bug).
+        expect(container).toHaveTextContent('G:\\_AI');
+      });
+      expect(container.textContent).not.toBe('G:_AI');
+    });
+
+    it('rendert mehrere Unterstrich-Segmente verbatim', async () => {
+      const { container } = renderWithIntl(
+        <MarkdownContent content={'Pfad: D:\\_AI\\_Documents\\x'} />
+      );
+
+      await waitFor(() => {
+        expect(container).toHaveTextContent('D:\\_AI\\_Documents\\x');
+      });
+    });
+
+    it('verlinkt den Pfad weiterhin (remarkLocalPaths bleibt wirksam)', async () => {
+      const { container } = renderWithIntl(<MarkdownContent content={'G:\\_AI'} />);
+
+      await waitFor(() => {
+        const link = container.querySelector('a');
+        expect(link).toBeInTheDocument();
+        expect(link).toHaveTextContent('G:\\_AI');
+      });
+    });
+
+    it('laesst einen Pfad in Inline-Code unveraendert', async () => {
+      const { container } = renderWithIntl(<MarkdownContent content={'`G:\\_AI`'} />);
+
+      await waitFor(() => {
+        expect(container).toHaveTextContent('G:\\_AI');
+      });
+    });
+
+    it('verlinkt einen bare Pfad MIT LEERZEICHEN vollstaendig (kein Abschneiden am Space)', async () => {
+      const { container } = renderWithIntl(
+        <MarkdownContent content={'Siehe C:\\Temp\\mein bild.jpg bitte.'} />
+      );
+
+      await waitFor(() => {
+        const link = container.querySelector('a');
+        expect(link).toBeInTheDocument();
+        // Der ganze Pfad inkl. Leerzeichen ist der Link - nicht nur "C:\\Temp\\mein".
+        expect(link).toHaveTextContent('C:\\Temp\\mein bild.jpg');
+      });
+    });
+  });
+
   describe('Code Block Functionality', () => {
     it('renders code blocks with syntax highlighting', async () => {
       const content = `\`\`\`javascript

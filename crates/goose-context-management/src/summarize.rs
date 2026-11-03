@@ -1,6 +1,6 @@
 use anyhow::Result;
 use goose_providers::conversation::message::{Message, MessageContent};
-use goose_providers::conversation::token_usage::ProviderUsage;
+use goose_providers::conversation::token_usage::{ProviderUsage, Usage};
 use goose_providers::errors::ProviderError;
 use rmcp::model::Role;
 use serde::Serialize;
@@ -118,9 +118,104 @@ async fn ensure_usage_tokens(
     }
 }
 
-/// Summarizes `messages` into a single user-role message, retrying with
-/// progressively more tool responses removed when the summarizer itself
-/// overflows its context window.
+/// Runs the summarizer model once on `messages`. Returns `Ok(Some(summary))` on
+/// success, `Ok(None)` when the model overflowed its context window on this input
+/// (caller should shrink and retry), and `Err` for genuine, non-context errors.
+async fn try_summarize_slice(
+    model: &dyn CompactionModel,
+    estimator: Option<&dyn TokenEstimator>,
+    templates: &Templates,
+    messages: &[&Message],
+    request: &[Message],
+) -> Result<Option<Summary>> {
+    let context = SummarizeContext {
+        messages: messages
+            .iter()
+            .map(|&msg| format_message_for_compacting(msg))
+            .collect::<Vec<_>>()
+            .join("\n"),
+    };
+    let system_prompt = render(&templates.compaction, &context)?;
+
+    match model.complete(&system_prompt, request).await {
+        Ok((mut response, mut usage)) => {
+            response.role = Role::User;
+
+            // Usage must reflect the raw model output (billable tokens), so
+            // estimate before the response is rewritten to the smaller rendered
+            // summary.
+            if let Some(estimator) = estimator {
+                ensure_usage_tokens(&mut usage, estimator, &system_prompt, request, &response)
+                    .await;
+            }
+
+            apply_structured_summary(&mut response, &templates.summary);
+
+            Ok(Some(Summary {
+                message: response,
+                usage,
+            }))
+        }
+        Err(ProviderError::ContextLengthExceeded(_)) => Ok(None),
+        Err(e) => Err(e.into()),
+    }
+}
+
+/// Prepends a short note so the agent knows earlier turns were dropped from the
+/// (otherwise model-written) summary.
+fn with_truncation_note(mut summary: Summary, dropped: usize) -> Summary {
+    if dropped == 0 {
+        return summary;
+    }
+    let note = MessageContent::text(format!(
+        "[Note: the earliest {dropped} message(s) exceeded the model's context window and were omitted from this summary. Continue from the most recent context below.]\n\n"
+    ));
+    let mut content = Vec::with_capacity(summary.message.content.len() + 1);
+    content.push(note);
+    content.append(&mut summary.message.content);
+    summary.message.content = content;
+    summary
+}
+
+/// Last-resort summary built WITHOUT a model call, for when not even a single
+/// recent message fits the summarizer. Keeps the tail of the most recent message
+/// so the live task is not lost, and never fails - compaction must always return
+/// something the conversation can continue from.
+fn synthetic_truncation_summary(messages: &[&Message]) -> Summary {
+    const TAIL_CHARS: usize = 2000;
+    let recent = messages
+        .last()
+        .map(|msg| msg.as_concat_text())
+        .unwrap_or_default();
+    // Keep the last TAIL_CHARS characters without slicing on a byte index (which
+    // could split a UTF-8 char): collect from the end, then restore order.
+    let mut tail_chars: Vec<char> = recent.chars().rev().take(TAIL_CHARS).collect();
+    tail_chars.reverse();
+    let tail: String = tail_chars.into_iter().collect();
+
+    let text = format!(
+        "[The conversation history was too large to summarize and had to be truncated to keep going. \
+         Earlier context is unavailable. Most recent message follows.]\n\n{tail}"
+    );
+    Summary {
+        message: Message::user().with_text(text),
+        usage: ProviderUsage::new(String::new(), Usage::default()),
+    }
+}
+
+/// Summarizes `messages` into a single user-role message.
+///
+/// Three escalating strategies make this ALWAYS return a usable summary instead
+/// of dead-ending the conversation:
+///   1. Summarize the full history, dropping tool responses from the middle
+///      outwards when the summarizer overflows.
+///   2. If even a tool-response-free history overflows, keep only the most recent
+///      messages (halving the kept tail until it fits). The full history stays
+///      user-visible; only the agent-visible summary shrinks.
+///   3. If not even the single most recent message fits, synthesize a summary
+///      locally so compaction still returns.
+///
+/// Only genuine, non-context errors (network, auth, broken template) surface.
 pub async fn summarize(
     model: &dyn CompactionModel,
     estimator: Option<&dyn TokenEstimator>,
@@ -128,57 +223,33 @@ pub async fn summarize(
     messages: &[Message],
 ) -> Result<Summary> {
     let request = vec![Message::user().with_text(SUMMARIZE_REQUEST_TEXT)];
-    let has_tool_responses = messages.iter().any(has_tool_response);
 
-    for (attempt, &remove_percent) in REMOVAL_PERCENTAGES.iter().enumerate() {
+    // Strategy 1: full history, progressively dropping tool responses.
+    for &remove_percent in REMOVAL_PERCENTAGES.iter() {
         let filtered = filter_tool_responses(messages, remove_percent);
-        let context = SummarizeContext {
-            messages: filtered
-                .iter()
-                .map(|&msg| format_message_for_compacting(msg))
-                .collect::<Vec<_>>()
-                .join("\n"),
-        };
-        let system_prompt = render(&templates.compaction, &context)?;
-
-        match model.complete(&system_prompt, &request).await {
-            Ok((mut response, mut usage)) => {
-                response.role = Role::User;
-
-                // Usage must reflect the raw model output (billable tokens),
-                // so estimate before the response is rewritten to the smaller
-                // rendered summary.
-                if let Some(estimator) = estimator {
-                    ensure_usage_tokens(&mut usage, estimator, &system_prompt, &request, &response)
-                        .await;
-                }
-
-                apply_structured_summary(&mut response, &templates.summary);
-
-                return Ok(Summary {
-                    message: response,
-                    usage,
-                });
-            }
-            Err(ProviderError::ContextLengthExceeded(_)) if !has_tool_responses => {
-                return Err(anyhow::anyhow!(
-                    "Failed to compact: the base prompt (system prompt, tool schemas, and conversation) exceeds the model's effective context window, and there are no tool responses to remove. Use a model or configuration with a larger usable context, disable some extensions to reduce the tool-schema payload, or start a new session."
-                ));
-            }
-            Err(ProviderError::ContextLengthExceeded(_))
-                if attempt < REMOVAL_PERCENTAGES.len() - 1 => {}
-            Err(ProviderError::ContextLengthExceeded(_)) => {
-                return Err(anyhow::anyhow!(
-                    "Failed to compact: context limit exceeded even after removing all tool responses"
-                ));
-            }
-            Err(e) => return Err(e.into()),
+        if let Some(summary) =
+            try_summarize_slice(model, estimator, templates, &filtered, &request).await?
+        {
+            return Ok(summary);
         }
     }
 
-    Err(anyhow::anyhow!(
-        "Unexpected: exhausted all attempts without returning"
-    ))
+    // Strategy 2: tool responses are all gone but the history still overflows.
+    // Keep only the most recent messages, halving the kept tail until it fits.
+    let stripped = filter_tool_responses(messages, 100);
+    let mut keep = stripped.len() / 2;
+    while keep >= 1 {
+        let tail = &stripped[stripped.len() - keep..];
+        if let Some(summary) =
+            try_summarize_slice(model, estimator, templates, tail, &request).await?
+        {
+            return Ok(with_truncation_note(summary, stripped.len() - keep));
+        }
+        keep /= 2;
+    }
+
+    // Strategy 3: not even one message fits - synthesize locally, never fail.
+    Ok(synthetic_truncation_summary(&stripped))
 }
 
 #[cfg(test)]
@@ -220,26 +291,57 @@ mod tests {
         }
     }
 
+    /// Overflows only while the rendered prompt still embeds more than
+    /// `max_marks` tagged messages, so a small-enough recent tail succeeds.
+    struct FitsFewMarksModel {
+        request_count: AtomicUsize,
+        max_marks: usize,
+    }
+
+    #[async_trait]
+    impl CompactionModel for FitsFewMarksModel {
+        async fn complete(
+            &self,
+            system: &str,
+            _messages: &[Message],
+        ) -> Result<(Message, ProviderUsage), ProviderError> {
+            self.request_count.fetch_add(1, Ordering::Relaxed);
+            if system.matches("MSGMARK").count() > self.max_marks {
+                Err(ProviderError::ContextLengthExceeded(
+                    "Prompt exceeds context limit".to_string(),
+                ))
+            } else {
+                Ok((
+                    Message::assistant().with_text("MODEL_SUMMARY"),
+                    ProviderUsage::new("test".to_string(), Usage::default()),
+                ))
+            }
+        }
+    }
+
+    // Der Dead-End "Failed to compact..." darf NIE mehr entstehen. Ueberlaeuft der
+    // Summarizer sogar ohne Tool-Antworten, liefert summarize eine (lokal
+    // synthetisierte) Zusammenfassung statt eines Fehlers - der Chat bleibt nutzbar.
     #[tokio::test]
-    async fn summarize_without_tool_responses_fails_fast() {
+    async fn never_dead_ends_when_model_always_overflows() {
         let model = OverflowingModel::new();
         let messages = vec![Message::user().with_text("oversized conversation")];
 
-        let error = summarize(&model, None, &Templates::default(), &messages)
+        let summary = summarize(&model, None, &Templates::default(), &messages)
             .await
-            .unwrap_err();
-        let error_message = error.to_string();
+            .expect("compaction must never dead-end on context overflow");
 
-        assert_eq!(model.request_count(), 1);
-        assert!(error_message.contains("there are no tool responses to remove"));
-        assert!(!error_message.contains("even after removing all tool responses"));
-        assert!(error_message.contains("larger usable context"));
-        assert!(error_message.contains("disable some extensions"));
-        assert!(error_message.contains("start a new session"));
+        assert_eq!(summary.message.role, Role::User);
+        assert!(summary
+            .message
+            .as_concat_text()
+            .contains("too large to summarize"));
+        // Strategy 1 exhausts all removal percentages before falling back.
+        assert_eq!(model.request_count(), REMOVAL_PERCENTAGES.len());
     }
 
     #[tokio::test]
-    async fn summarize_with_tool_responses_preserves_exhausted_removal_error() {
+    async fn never_dead_ends_with_tool_responses() {
         let model = OverflowingModel::new();
         let messages = vec![
             Message::user().with_text("please read the file"),
@@ -251,14 +353,42 @@ mod tests {
             ),
         ];
 
-        let error = summarize(&model, None, &Templates::default(), &messages)
+        let summary = summarize(&model, None, &Templates::default(), &messages)
             .await
-            .unwrap_err();
+            .expect("compaction must never dead-end even with tool responses");
 
-        assert_eq!(model.request_count(), REMOVAL_PERCENTAGES.len());
-        assert_eq!(
-            error.to_string(),
-            "Failed to compact: context limit exceeded even after removing all tool responses"
+        assert_eq!(summary.message.role, Role::User);
+        assert!(summary
+            .message
+            .as_concat_text()
+            .contains("too large to summarize"));
+    }
+
+    // Reicht die volle Historie nicht, muss summarize auf die juengsten Nachrichten
+    // zurueckfallen und sie zusammenfassen (mit Hinweis auf die weggelassenen Turns).
+    #[tokio::test]
+    async fn falls_back_to_recent_tail_when_full_history_overflows() {
+        let model = FitsFewMarksModel {
+            request_count: AtomicUsize::new(0),
+            max_marks: 2,
+        };
+        let messages: Vec<Message> = (0..8)
+            .map(|i| Message::user().with_text(format!("MSGMARK block {i}")))
+            .collect();
+
+        let summary = summarize(&model, None, &Templates::default(), &messages)
+            .await
+            .expect("must recover via recent-tail fallback");
+
+        let text = summary.message.as_concat_text();
+        assert!(
+            text.contains("MODEL_SUMMARY"),
+            "uses the model summary of the tail"
         );
+        assert!(
+            text.contains("were omitted"),
+            "notes that earlier turns were dropped"
+        );
+        assert_eq!(summary.message.role, Role::User);
     }
 }

@@ -12,6 +12,7 @@ import { resolveChatPath } from '../tb/resolveChatPath';
 import { revealLocalPath } from '../tb/revealPath';
 import { useWorkingDir } from '../tb/WorkingDirContext';
 import { remarkLocalPaths } from '../tb/remarkLocalPaths';
+import { protectWindowsPaths } from '../tb/protectWindowsPaths';
 import { usePreview } from '../tb/preview/PreviewContext';
 import { previewKindFor } from '../tb/preview/previewKind';
 import { copyAbsolutePath } from '../tb/copyPath';
@@ -247,9 +248,37 @@ const MarkdownContent = memo(function MarkdownContent({
   const intl = useIntl();
   const preview = usePreview();
   const workingDir = useWorkingDir();
+
+  // TB-Software: Rechtsklick-Menue fuer Pfad-Links (voller Pfad kopieren / im Explorer zeigen /
+  // Vorschau). Der aufgeloeste localPath ist der korrekte, absolute Pfad - so ist "Pfad kopieren"
+  // immer der volle Pfad, nicht der sichtbare Linktext.
+  const [pathMenu, setPathMenu] = useState<{
+    x: number;
+    y: number;
+    path: string;
+    previewable: boolean;
+  } | null>(null);
+  useEffect(() => {
+    if (!pathMenu) return;
+    const close = () => setPathMenu(null);
+    window.addEventListener('click', close);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('keydown', close);
+    window.addEventListener('contextmenu', close);
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('keydown', close);
+      window.removeEventListener('contextmenu', close);
+    };
+  }, [pathMenu]);
+
   const processedContent = useMemo(() => {
     try {
-      return wrapHTMLInCodeBlock(content);
+      // TB-Software: erst HTML in Code-Fences kapseln, DANN Windows-Pfade ausserhalb von Code
+      // escapen (sonst wuerde "G:\_AI" zu "G:_AI" verstuemmelt). Reihenfolge wichtig: die
+      // Pfad-Absicherung ueberspringt Code-Regionen, die wrapHTMLInCodeBlock gerade erzeugt hat.
+      return protectWindowsPaths(wrapHTMLInCodeBlock(content));
     } catch (error) {
       console.error('Error processing content:', error);
       return content;
@@ -274,6 +303,7 @@ const MarkdownContent = memo(function MarkdownContent({
   );
 
   return (
+    <>
     <div
       className={`w-full overflow-x-hidden prose prose-sm text-text-primary dark:prose-invert max-w-full word-break font-sans
         prose-pre:p-0 prose-pre:m-0 !p-0
@@ -320,7 +350,7 @@ const MarkdownContent = memo(function MarkdownContent({
                 {...props}
                 target="_blank"
                 rel="noopener noreferrer"
-                title={localPath ? 'Klick: öffnen · Rechtsklick: Pfad kopieren' : undefined}
+                title={localPath ? 'Klick: öffnen · Rechtsklick: Menü' : undefined}
                 className={
                   localPath
                     ? `${props.className ?? ''} underline decoration-dotted cursor-pointer`.trim()
@@ -331,7 +361,12 @@ const MarkdownContent = memo(function MarkdownContent({
                     ? (e) => {
                         e.preventDefault();
                         e.stopPropagation();
-                        void copyAbsolutePath(localPath);
+                        setPathMenu({
+                          x: e.clientX,
+                          y: e.clientY,
+                          path: localPath,
+                          previewable: !!preview && previewKindFor(localPath) !== 'unknown',
+                        });
                       }
                     : undefined
                 }
@@ -391,6 +426,56 @@ const MarkdownContent = memo(function MarkdownContent({
         {processedContent}
       </ReactMarkdown>
     </div>
+      {pathMenu && (
+        <div
+          className="fixed z-[1000] min-w-[210px] rounded-md border border-border-primary bg-background-primary shadow-lg py-1 text-sm"
+          style={{
+            left: Math.min(pathMenu.x, window.innerWidth - 230),
+            top: Math.min(pathMenu.y, window.innerHeight - 150),
+          }}
+          onContextMenu={(e) => e.preventDefault()}
+        >
+          <button
+            type="button"
+            className="w-full text-left px-3 py-1.5 hover:bg-muted/50 text-text-primary cursor-pointer"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              void copyAbsolutePath(pathMenu.path);
+              setPathMenu(null);
+            }}
+          >
+            Vollständigen Pfad kopieren
+          </button>
+          <button
+            type="button"
+            className="w-full text-left px-3 py-1.5 hover:bg-muted/50 text-text-primary cursor-pointer"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              void revealLocalPath(pathMenu.path, workingDir);
+              setPathMenu(null);
+            }}
+          >
+            Im Explorer anzeigen
+          </button>
+          {pathMenu.previewable && (
+            <button
+              type="button"
+              className="w-full text-left px-3 py-1.5 hover:bg-muted/50 text-text-primary cursor-pointer"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                preview?.open(pathMenu.path);
+                setPathMenu(null);
+              }}
+            >
+              Vorschau (rechts)
+            </button>
+          )}
+        </div>
+      )}
+    </>
   );
 });
 

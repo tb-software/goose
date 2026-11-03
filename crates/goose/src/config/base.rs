@@ -1259,6 +1259,19 @@ impl Config {
         }
     }
 
+    /// TB-Software: optionales eigenes Output-Budget fuer die Verdichtungs-Zusammenfassung,
+    /// entkoppelt von GOOSE_MAX_TOKENS (das jeden Turn reserviert). Ein grosser Wert hier
+    /// betrifft nur den seltenen Einzel-Request der Verdichtung, nicht die Last pro Turn.
+    /// Nur der explizit gesetzte Wert wird zurueckgegeben (>0); fehlt der Key oder ist er
+    /// ungueltig, gilt None, und der Aufrufer leitet den Default aus dem Per-Turn-Budget ab
+    /// (das Doppelte).
+    pub fn get_goose_compaction_max_tokens(&self) -> Option<i32> {
+        match self.get_param::<i32>("GOOSE_COMPACTION_MAX_TOKENS") {
+            Ok(tokens) if tokens > 0 => Some(tokens),
+            _ => None,
+        }
+    }
+
     pub fn get_goose_docs_root(&self) -> Result<Option<String>, ConfigError> {
         match self.get_param::<String>("GOOSE_DOCS_ROOT") {
             Ok(root) => Ok(Some(root.trim().to_string()).filter(|root| !root.is_empty())),

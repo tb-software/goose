@@ -2,6 +2,7 @@
 // Wird überall genutzt, wo ein Pfad angezeigt wird (Chat-Pfad-Links, Vorschau-Kopf),
 // damit der Nutzer jeden Pfad zuverlässig als ABSOLUTEN Pfad übernehmen kann.
 import { toast } from 'react-toastify';
+import { matchWindowsPaths } from './windowsPath';
 
 // Generischer Clipboard-Helfer (Pfad ODER Inhalt) mit Toast + execCommand-Fallback.
 export async function copyText(
@@ -32,16 +33,18 @@ export async function copyText(
   }
 }
 
-// Pfad-Erkennung (geteilt von Chat- und globalem Kontextmenue): Windows (C:\...), UNC (\\server\...),
-// Unix (/foo/bar). Nimmt den laengsten Treffer, entfernt abschliessende Satzzeichen.
-export const PATH_RE =
-  /([A-Za-z]:\\[^\s"'<>|)\]]+|\\\\[^\s"'<>|)\]]+|\/[^\s"'<>|)\]]{2,}\/[^\s"'<>|)\]]*)/g;
+// Unix-Pfad (/foo/bar). Windows/UNC laufen ueber matchWindowsPaths (unterstuetzt Leerzeichen).
+const UNIX_PATH_RE = /\/[^\s"'<>|)\]]{2,}\/[^\s"'<>|)\]]*/g;
 
+// Pfad-Erkennung (geteilt von Chat- und globalem Kontextmenue): Windows (C:\..., auch mit
+// Leerzeichen), UNC (\\server\...), Unix (/foo/bar). Nimmt den laengsten Treffer.
 export function extractPath(text: string): string | null {
-  const matches = text.match(PATH_RE);
-  if (!matches || matches.length === 0) return null;
-  const best = matches.sort((a, b) => b.length - a.length)[0];
-  return best.replace(/[.,;:!?]+$/, '');
+  const candidates: string[] = [];
+  for (const { value } of matchWindowsPaths(text)) candidates.push(value);
+  const unix = text.match(UNIX_PATH_RE);
+  if (unix) for (const u of unix) candidates.push(u.replace(/[.,;:!?]+$/, ''));
+  if (candidates.length === 0) return null;
+  return candidates.sort((a, b) => b.length - a.length)[0];
 }
 
 export async function copyAbsolutePath(path: string | null | undefined): Promise<void> {

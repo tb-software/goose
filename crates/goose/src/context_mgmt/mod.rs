@@ -360,9 +360,22 @@ async fn do_compact(
     )
     .agent_visible_messages();
 
+    // TB-Software: der Verdichtung ein eigenes, groesseres Output-Budget geben, damit die
+    // Zusammenfassung mehr Detail halten kann, ohne das Per-Turn-Budget (GOOSE_MAX_TOKENS)
+    // anzuheben, dessen grosse Werte ausgelastete Serving-Nodes haengen liessen. Explizit
+    // gesetzter GOOSE_COMPACTION_MAX_TOKENS gewinnt; sonst Default = das Doppelte des
+    // Per-Turn-Budgets. Ist kein Per-Turn-Budget gesetzt, bleibt die Config unveraendert.
+    let compaction_budget = Config::global()
+        .get_goose_compaction_max_tokens()
+        .or_else(|| model_config.max_tokens.map(|t| t.saturating_mul(2)));
+    let compaction_config = match compaction_budget {
+        Some(tokens) => model_config.clone().with_max_tokens(Some(tokens)),
+        None => model_config.clone(),
+    };
+
     let model = GooseCompactionModel {
         provider,
-        model_config,
+        model_config: &compaction_config,
         session_id,
     };
     let summary = goose_context_management::summarize(

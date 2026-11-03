@@ -1,15 +1,12 @@
 // TB-Software: remark-Plugin, das Windows-Dateipfade im Fliesstext (C:\..., C:/...,
 // \\server\...) in Links verwandelt. Der Link-Renderer in MarkdownContent oeffnet
 // solche Links im Explorer (markiert die Datei). So werden AUCH bare Pfade in der
-// Antwort klickbar, nicht nur explizite Markdown-Links.
+// Antwort klickbar, nicht nur explizite Markdown-Links. Die eigentliche Pfad-Erkennung
+// (inkl. Leerzeichen im Pfad) liegt in windowsPath.ts, damit Links und Kontextmenue
+// denselben, vollstaendigen Pfad liefern.
 import { visit, SKIP } from 'unist-util-visit';
 import type { Root, Text, RootContent } from 'mdast';
-
-// Pfad bis zum ersten Whitespace/Trennzeichen. Nachlaufende Satzzeichen trennt der Code ab.
-// (?<![A-Za-z]) + (?!/): schliesst URL-Schemata aus — bei "http://"/"ftp://" ist der
-// Laufwerksbuchstabe von einem Buchstaben umgeben ('p' in "ftp:") und auf ":" folgt "//".
-// So wird nur ein echtes Laufwerk (C:\, D:/ am Wort-/Zeilenanfang) als Pfad erkannt.
-const PATH_RE = /(?:(?<![A-Za-z])[a-zA-Z]:[\\/](?!\/)[^\s<>"'`)\]]+|\\\\[^\s<>"'`)\]]+)/g;
+import { matchWindowsPaths } from './windowsPath';
 
 export function remarkLocalPaths() {
   return (tree: Root) => {
@@ -19,28 +16,22 @@ export function remarkLocalPaths() {
       const value = node.value;
       if (!/[a-zA-Z]:[\\/]|\\\\/.test(value)) return;
 
+      const found = matchWindowsPaths(value);
+      if (found.length === 0) return;
+
       const children: RootContent[] = [];
       let last = 0;
-      PATH_RE.lastIndex = 0;
-      let m: RegExpExecArray | null;
-      while ((m = PATH_RE.exec(value)) !== null) {
-        let match = m[0];
-        const trail = match.match(/[.,;:!?)]+$/);
-        const tail = trail ? trail[0] : '';
-        if (tail) match = match.slice(0, -tail.length);
-
-        if (m.index > last) {
-          children.push({ type: 'text', value: value.slice(last, m.index) });
+      for (const { index: mi, value: p } of found) {
+        if (mi > last) {
+          children.push({ type: 'text', value: value.slice(last, mi) });
         }
         children.push({
           type: 'link',
-          url: match,
-          children: [{ type: 'text', value: match }],
+          url: p,
+          children: [{ type: 'text', value: p }],
         });
-        if (tail) children.push({ type: 'text', value: tail });
-        last = m.index + m[0].length;
+        last = mi + p.length;
       }
-      if (children.length === 0) return;
       if (last < value.length) children.push({ type: 'text', value: value.slice(last) });
 
       parent.children.splice(index, 1, ...children);

@@ -1,8 +1,12 @@
-# TB-Software: statisch gegen die CRT linken (+crt-static) -> goose.exe hat KEINE externe
-# VCRUNTIME/UCRT-DLL-Abhängigkeit mehr und startet auf JEDEM Windows (Fix KI04: goose serve
-# exited 0xC0000135 = DLL not found). /FORCE:MULTIPLE + größerer Stack bleiben erhalten.
+# TB-Software: DYNAMISCHER CRT (kein +crt-static mehr). Grund: llama.cpp (local-inference)
+# kompiliert unter MSVC dynamisch (/MD) und ignoriert die statische-CRT-Vorgabe (CMP0091);
+# zusammen mit +crt-static scheitert der Link reproduzierbar (LNK1120, __imp_* aus llama).
+# Der frühere Fix KI04 (goose serve exited 0xC0000135 = DLL not found) bleibt abgedeckt, weil
+# die VC-Runtime-DLLs (vcruntime140*.dll, msvcp140.dll) app-lokal NEBEN die goose.exe gebündelt
+# werden (ui/desktop/src/bin -> resources/bin); Windows findet DLLs im Exe-Ordner zuerst, egal
+# was auf dem PC installiert ist. /FORCE:MULTIPLE + größerer Stack bleiben erhalten.
 [target.x86_64-pc-windows-msvc]
-rustflags = ["-C", "link-args=/FORCE:MULTIPLE /STACK:8388608", "-C", "target-feature=+crt-static"]
+rustflags = ["-C", "link-args=/FORCE:MULTIPLE /STACK:8388608"]
 
 [target.aarch64-pc-windows-msvc]
-rustflags = ["-C", "link-args=/FORCE:MULTIPLE /STACK:8388608", "-C", "target-feature=+crt-static"]
+rustflags = ["-C", "link-args=/FORCE:MULTIPLE /STACK:8388608"]

@@ -2,7 +2,29 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('react-toastify', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 import { toast } from 'react-toastify';
-import { copyAbsolutePath } from './copyPath';
+import { copyAbsolutePath, extractPath } from './copyPath';
+
+describe('extractPath', () => {
+  it('erkennt einen Windows-Pfad mit Leerzeichen vollstaendig', () => {
+    expect(extractPath('Read Image source: C:\\Temp\\screenshot - 2026_11_02 11-25-19.jpg')).toBe(
+      'C:\\Temp\\screenshot - 2026_11_02 11-25-19.jpg'
+    );
+  });
+
+  it('nimmt den laengsten Treffer bei mehreren Pfaden', () => {
+    expect(extractPath('C:\\a\\x.md vs D:\\lange\\tiefe\\datei mit namen.pdf')).toBe(
+      'D:\\lange\\tiefe\\datei mit namen.pdf'
+    );
+  });
+
+  it('erkennt Unix-Pfade weiterhin', () => {
+    expect(extractPath('siehe /var/log/app.log hier')).toBe('/var/log/app.log');
+  });
+
+  it('kein Pfad -> null', () => {
+    expect(extractPath('nur normaler Text, Version 1.2.3')).toBeNull();
+  });
+});
 
 describe('copyAbsolutePath', () => {
   beforeEach(() => vi.clearAllMocks());
