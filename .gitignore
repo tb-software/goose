@@ -28,6 +28,9 @@ target/
 node_modules
 /.pnpm-store/
 ./ui/desktop/out
+# TB-Software: Deploy-/Make-Ausgabeordner (electron-forge FORGE_OUT_DIR)
+/ui/desktop/out-deploy/
+/ui/desktop/out-final/
 
 # Generated goose DLLs (built at build time, not checked in)
 ui/desktop/src/bin/goose_ffi.dll
