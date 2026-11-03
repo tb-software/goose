@@ -146,11 +146,22 @@ fn is_context_length_exceeded_message(text: &str) -> bool {
         "max context",
         "maximum prompt length",
         "max prompt length",
+        // llama.cpp / LM Studio "predict" nodes, auch wenn das Gateway den 400 als 5xx-String
+        // wrappt ("Engine protocol predict request returned 400: {...exceed_context_size_error...}").
+        "available context size",
+        "exceed_context_size",
+        "context size",
     ];
     if direct_context_phrases
         .iter()
         .any(|phrase| text_lower.contains(phrase))
     {
+        return true;
+    }
+
+    // Gewrappte Node-Fehler tragen die rohen Felder im String: n_ctx + n_prompt_tokens zusammen
+    // sind ein eindeutiges Ueberlauf-Signal, egal wie der aeussere Status/Text aussieht.
+    if text_lower.contains("n_ctx") && text_lower.contains("n_prompt_tokens") {
         return true;
     }
 
@@ -283,11 +294,20 @@ pub fn map_http_error_to_provider_error(
             details: extract_message(),
             retry_delay: None,
         },
-        _ if status.is_server_error() => ProviderError::ServerError(format!(
-            "Server error ({}) at {url}: {}",
-            status,
-            extract_message()
-        )),
+        _ if status.is_server_error() => {
+            // Das Gateway wrappt Node-Kontextueberlaeufe (llama.cpp predict 400) als 5xx-String.
+            // Diese als ContextLengthExceeded klassifizieren, damit Verdichtung/Fallback greifen
+            // statt eines rohen Server-Fehlers, der den Chat blockiert.
+            let payload_str = extract_message();
+            if is_context_length_exceeded(payload.as_ref(), &payload_str) {
+                ProviderError::ContextLengthExceeded(payload_str)
+            } else {
+                ProviderError::ServerError(format!(
+                    "Server error ({}) at {url}: {}",
+                    status, payload_str
+                ))
+            }
+        }
         _ => ProviderError::RequestFailed(format!(
             "Request failed with status {} at {url}: {}",
             status,
@@ -827,5 +847,25 @@ mod tests {
                 "unexpected classification for {case}: {error:?}"
             );
         }
+    }
+
+    #[test]
+    fn wrapped_node_context_overflow_in_5xx_is_classified() {
+        // Realer Vorfall (TB-Goose 1.53.48, Benchmark-Node mit 8192 Kontext): das Gateway wrappt
+        // den llama.cpp-predict-400 als 5xx-String. Muss trotzdem ContextLengthExceeded sein,
+        // damit Verdichtung/Fallback greifen statt eines rohen Server-Fehlers.
+        let wrapped = "Engine protocol predict request returned 400: {\"error\":{\"code\":400,\
+            \"message\":\"request (8247 tokens) exceeds the available context size (8192 tokens), \
+            try increasing it\",\"type\":\"exceed_context_size_error\",\"n_prompt_tokens\":8247,\
+            \"n_ctx\":8192}}";
+        let error = map_http_error_to_provider_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Some(error_payload([("message", json!(wrapped))])),
+            "http://test/endpoint",
+        );
+        assert!(
+            matches!(&error, ProviderError::ContextLengthExceeded(_)),
+            "wrapped node overflow must classify as ContextLengthExceeded, got {error:?}"
+        );
     }
 }
