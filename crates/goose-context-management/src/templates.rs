@@ -8,9 +8,12 @@ pub const COMPACTION_TEMPLATE: &str = "compaction.md";
 pub const COMPACTION_SUMMARY_TEMPLATE: &str = "compaction_summary.md";
 
 pub fn builtin_template(name: &str) -> Option<String> {
+    // CRLF -> LF normalisieren: auf Windows-Checkouts (autocrlf) kommen die eingebetteten
+    // Prompt-Dateien mit \r\n, der code_fence-Filter erzeugt aber \n. Gemischte Zeilenenden
+    // zerreissen sonst z. B. die schliessende Code-Fence (\n`````\r\n) im Verdichtungs-Output.
     PROMPTS
         .get_file(name)
-        .map(|file| String::from_utf8_lossy(file.contents()).to_string())
+        .map(|file| String::from_utf8_lossy(file.contents()).replace("\r\n", "\n"))
 }
 
 /// Prompt sources for a compaction run, letting callers substitute
