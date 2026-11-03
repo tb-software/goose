@@ -59,6 +59,30 @@ pub struct CompactionResult {
     pub retained_context_tokens: i32,
 }
 
+/// TB-Software: Obergrenze (Zeichen) fuer die verbatim erhaltene juengste User-Nachricht.
+/// Bei der Verdichtung bleibt sie ungekuerzt erhalten; ist sie riesig (grosser Paste/Log),
+/// ueberlaeuft der Resend trotz Verdichtungs-Fallback -> Dead-End. Darum Kopf+Schwanz kappen.
+const MAX_PRESERVED_USER_CHARS: usize = 12_000;
+
+fn cap_preserved_user_message(mut msg: Message) -> Message {
+    let text = msg.as_concat_text();
+    let total = text.chars().count();
+    if total <= MAX_PRESERVED_USER_CHARS {
+        return msg;
+    }
+    let head_budget = MAX_PRESERVED_USER_CHARS * 2 / 3;
+    let tail_budget = MAX_PRESERVED_USER_CHARS - head_budget;
+    let chars: Vec<char> = text.chars().collect();
+    let head: String = chars[..head_budget].iter().collect();
+    let tail: String = chars[chars.len() - tail_budget..].iter().collect();
+    let capped = format!(
+        "{head}\n\n[... {} Zeichen gekuerzt - die Nachricht war zu lang fuers Kontextfenster ...]\n\n{tail}",
+        total - head_budget - tail_budget
+    );
+    msg.content = vec![MessageContent::text(capped)];
+    msg
+}
+
 /// Compact messages by summarizing them
 ///
 /// This function performs the actual compaction by summarizing messages and updating
@@ -118,7 +142,7 @@ pub async fn compact_messages(
                     Message::user().with_metadata(MessageMetadata::agent_only()),
                     Message::with_content,
                 );
-            Some((idx, preserved))
+            Some((idx, cap_preserved_user_message(preserved)))
         });
 
         if let Some((idx, msg)) = found_msg {
@@ -622,6 +646,25 @@ mod tests {
     use async_trait::async_trait;
     use goose_providers::conversation::token_usage::Usage;
     use rmcp::model::{CallToolRequestParams, Tool};
+
+    #[test]
+    fn cap_preserved_user_message_truncates_oversized() {
+        let big = "x".repeat(MAX_PRESERVED_USER_CHARS * 3);
+        let capped = cap_preserved_user_message(Message::user().with_text(big));
+        let out = capped.as_concat_text();
+        assert!(
+            out.chars().count() < MAX_PRESERVED_USER_CHARS + 200,
+            "capped length {} too large",
+            out.chars().count()
+        );
+        assert!(out.contains("gekuerzt"));
+    }
+
+    #[test]
+    fn cap_preserved_user_message_keeps_small_verbatim() {
+        let capped = cap_preserved_user_message(Message::user().with_text("kurze nachricht"));
+        assert_eq!(capped.as_concat_text(), "kurze nachricht");
+    }
 
     fn create_tool_pair(
         call_id: &str,
