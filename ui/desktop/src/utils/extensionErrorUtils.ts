@@ -4,6 +4,7 @@
 
 import type { ExtensionLoadResult } from '../types/extensions';
 import { toastService, ExtensionLoadingStatus } from '../toasts';
+import { extFailureSignature, isExtFailureSeen, clearExtFailuresSeen } from '../tb/extFailureDedupe';
 
 export const MAX_ERROR_MESSAGE_LENGTH = 70;
 
@@ -45,7 +46,14 @@ export function showExtensionLoadResults(results: ExtensionLoadResult[] | null |
   const failedExtensions = results.filter((r) => !r.success);
 
   if (failedExtensions.length === 0) {
+    clearExtFailuresSeen();
     toastService.dismiss('extension-loading');
+    return;
+  }
+
+  // TB-Software: Denselben Fehler-Satz nicht jede Session erneut als Toast zeigen. Der Merker
+  // wird vom Readiness-Banner gesetzt (rendert zuletzt); hier nur lesen.
+  if (isExtFailureSeen(extFailureSignature(failedExtensions.map((r) => r.name)))) {
     return;
   }
 

@@ -4,6 +4,12 @@
 // Diese Leiste macht sichtbar: "wird verbunden" bzw. "X von Y verbunden, Z nicht erreichbar".
 import { useEffect, useState } from 'react';
 import { Info } from 'lucide-react';
+import {
+  extFailureSignature,
+  isExtFailureSeen,
+  markExtFailureSeen,
+  clearExtFailuresSeen,
+} from './extFailureDedupe';
 
 interface ExtResult {
   name: string;
@@ -49,13 +55,25 @@ export default function TbExtensionReadiness() {
       // done
       const res = Array.isArray(detail.results) ? detail.results : [];
       setResults(res);
-      setPhase('done');
       const failed = res.filter((r) => !r.success);
+      if (hideTimer) clearTimeout(hideTimer);
       if (failed.length === 0) {
-        // Alles verbunden -> kurz bestaetigen, dann ausblenden.
-        if (hideTimer) clearTimeout(hideTimer);
+        // Alles verbunden -> Merker loeschen, kurz bestaetigen, dann ausblenden.
+        clearExtFailuresSeen();
+        setPhase('done');
         hideTimer = setTimeout(() => setPhase('idle'), 2500);
+        return;
       }
+      // TB-Software: Denselben Fehler-Satz (z. B. LenaX-DB jedes Mal) nicht erneut nagen.
+      const sig = extFailureSignature(failed.map((r) => r.name));
+      if (isExtFailureSeen(sig)) {
+        setPhase('idle');
+        return;
+      }
+      markExtFailureSeen(sig);
+      setPhase('done');
+      // Auch beim ersten Mal nicht dauerhaft stehen lassen - nach einigen Sekunden ausblenden.
+      hideTimer = setTimeout(() => setPhase('idle'), 9000);
     };
     window.addEventListener('tb:extensions-status', onStatus);
     return () => {
