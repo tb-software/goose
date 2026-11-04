@@ -197,6 +197,22 @@ console.log(html);
         expect(link).toHaveTextContent('C:\\Temp\\mein bild.jpg');
       });
     });
+
+    it('Rechtsklick auf einen Pfad-Link oeffnet das Kontextmenue (kopieren / Explorer)', async () => {
+      const { container } = renderWithIntl(
+        <MarkdownContent content={'Datei: D:\\NextCloud\\Familie\\Noah 6. Geburtstag\\x.psd'} />
+      );
+      let link: Element | null = null;
+      await waitFor(() => {
+        link = container.querySelector('a');
+        expect(link).toBeInTheDocument();
+      });
+      fireEvent.contextMenu(link!);
+      await waitFor(() => {
+        expect(screen.getByText('Vollständigen Pfad kopieren')).toBeInTheDocument();
+        expect(screen.getByText('Im Explorer anzeigen')).toBeInTheDocument();
+      });
+    });
   });
 
   describe('Code Block Functionality', () => {

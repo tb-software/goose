@@ -47,6 +47,27 @@ export function extractPath(text: string): string | null {
   return candidates.sort((a, b) => b.length - a.length)[0];
 }
 
+// TB-Software: Kopiert den AUFGELOESTEN (laengsten existierenden) Pfad. Ein im Chat genannter Pfad
+// kann Fliesstext-Ueberhang haben oder am Leerzeichen zu lang gefasst sein; tb-resolve-file schneidet
+// ihn serverseitig auf den echten Pfad zurueck. Faellt auf den Rohpfad zurueck, wenn nicht aufloesbar.
+export async function copyResolvedPath(raw: string | null | undefined): Promise<void> {
+  const value = (raw ?? '').trim();
+  if (!value) return;
+  let target = value;
+  try {
+    const api = (
+      window as unknown as {
+        electron?: { tbResolveFile?: (x: string) => Promise<{ ok?: boolean; path?: string }> };
+      }
+    ).electron;
+    const r = await api?.tbResolveFile?.(value);
+    if (r?.ok && r.path) target = r.path;
+  } catch {
+    /* mit dem Rohpfad kopieren */
+  }
+  await copyAbsolutePath(target);
+}
+
 export async function copyAbsolutePath(path: string | null | undefined): Promise<void> {
   const value = (path ?? '').trim();
   if (!value) return;

@@ -82,7 +82,12 @@ export async function resolveWorkspaceFile(
     if (await deps.exists(s)) {
       return { ok: true, path: p.normalize(s), reason: 'exists' };
     }
-    // Existiert nicht: evtl. liegt der Basisname trotzdem unter der Wurzel -> Schritt 3.
+    // Existiert nicht exakt: haeufig Fliesstext-Ueberhang hinter dem Pfad ("...\Noah 6. Geburtstag
+    // und 339 MB") oder ein am Leerzeichen zu lang gefasster Pfad. Den LAENGSTEN existierenden
+    // Praefix finden (trailing Wort-Tokens + Segmente wegschneiden), bevor die Basisnamen-Suche greift.
+    const prefix = await longestExistingPrefix(s, deps.exists);
+    if (prefix) return { ok: true, path: p.normalize(prefix), reason: 'exists' };
+    // Sonst: evtl. liegt der Basisname trotzdem unter der Wurzel -> Schritt 3.
   } else {
     if (!wd) return { ok: false, path: null, reason: 'no-working-dir' };
     const candidate = p.resolve(wd, stripLeadingRel(s));
@@ -102,6 +107,28 @@ export async function resolveWorkspaceFile(
   }
 
   return { ok: false, path: null, reason: 'missing' };
+}
+
+// TB-Software: Laengster existierender Praefix eines absoluten Pfades. Schneidet - solange der
+// Pfad nicht existiert - das jeweils letzte Leerzeichen-Token bzw. Pfad-Segment weg, bis eine
+// Datei ODER ein Ordner existiert oder nur noch das Laufwerk uebrig ist. Deckt Fliesstext-Ueberhang
+// (Pfad mitten im Satz) und am Leerzeichen zu lang gefasste Pfade ab. Max. 64 Schritte (gedeckelt).
+export async function longestExistingPrefix(
+  path: string,
+  exists: (abs: string) => Promise<boolean>
+): Promise<string | null> {
+  let candidate = path.replace(/[\s]+$/, '');
+  for (let guard = 0; guard < 64 && candidate.length > 0; guard++) {
+    if (await exists(candidate)) return candidate;
+    const sepIdx = Math.max(candidate.lastIndexOf('\\'), candidate.lastIndexOf('/'));
+    // Nicht unter das Laufwerk/den UNC-Stamm kuerzen (sepIdx<=2 ~ "C:\").
+    if (sepIdx <= 2) break;
+    const spaceIdx = candidate.lastIndexOf(' ');
+    const cut = Math.max(spaceIdx, sepIdx);
+    if (cut <= 0) break;
+    candidate = candidate.slice(0, cut).replace(/[\\/\s]+$/, '');
+  }
+  return null;
 }
 
 // TB-Software: begrenzte Tiefensuche nach einem EXAKTEN Basisnamen (case-insensitiv) unter root.

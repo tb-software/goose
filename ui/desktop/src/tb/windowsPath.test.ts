@@ -26,9 +26,14 @@ describe('clampWindowsPath', () => {
     expect(clampWindowsPath('C:\\a\\x.md).')).toBe('C:\\a\\x.md');
   });
 
-  it('Ordner ohne Endung: konservativ bis zum ersten Leerzeichen', () => {
-    // bekannte Grenze - Ordnernamen mit Leerzeichen besser in Backticks referenzieren
-    expect(clampWindowsPath('C:\\Program Files')).toBe('C:\\Program');
+  it('Ordner/endungslose Pfade mit Leerzeichen bleiben ganz (kein Abschneiden am Space)', () => {
+    expect(clampWindowsPath('C:\\Program Files')).toBe('C:\\Program Files');
+    expect(clampWindowsPath('D:\\NextCloud\\Familie\\Noah 6. Geburtstag')).toBe(
+      'D:\\NextCloud\\Familie\\Noah 6. Geburtstag'
+    );
+    expect(clampWindowsPath('C:\\Users\\timob\\AppData\\Local\\Temp\\Photoshop Temp511911418184')).toBe(
+      'C:\\Users\\timob\\AppData\\Local\\Temp\\Photoshop Temp511911418184'
+    );
   });
 
   it('Pfad ohne Leerzeichen und ohne Endung bleibt unveraendert', () => {

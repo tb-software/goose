@@ -25,12 +25,15 @@ const EXT_END = /\.[A-Za-z][A-Za-z0-9]{0,11}(?=$|[\s)\],;:!?'"<>|])/;
 /**
  * Klemmt einen greedy aufgenommenen Pfad-Lauf auf den echten Pfad ab:
  * - endet der Lauf auf eine Datei (Endung vorhanden), bis unmittelbar nach der Endung;
- * - sonst (Ordner ohne Endung) bis zum ersten Leerzeichen (konservativ, wie zuvor);
+ * - sonst (Ordner, endungslose Dateien wie Photoshop-Temp) den GANZEN greedy Lauf behalten,
+ *   NICHT am ersten Leerzeichen abschneiden - sonst bricht "C:\...\Noah 6. Geburtstag" bei
+ *   "Noah" ab. Ein eventueller Fliesstext-Ueberhang (Pfad mitten im Satz) wird beim Oeffnen/
+ *   Kopieren serverseitig auf den laengsten EXISTIERENDEN Pfad zurueckgeschnitten (tb-resolve-file);
  * - abschliessende Satzzeichen / schliessende Klammern werden entfernt.
  */
 export function clampWindowsPath(raw: string): string {
   const ext = EXT_END.exec(raw);
-  const out = ext ? raw.slice(0, ext.index + ext[0].length) : raw.split(/\s/)[0];
+  const out = ext ? raw.slice(0, ext.index + ext[0].length) : raw;
   return out.replace(/[.,;:!?)\]]+$/, '');
 }
 

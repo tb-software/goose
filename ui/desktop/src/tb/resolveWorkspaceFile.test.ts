@@ -10,8 +10,36 @@ import os from 'node:os';
 import {
   resolveWorkspaceFile,
   findExactBasenameUnder,
+  longestExistingPrefix,
   type ResolveDeps,
 } from './resolveWorkspaceFile';
+
+describe('longestExistingPrefix', () => {
+  const real = 'D:\\NextCloud\\Familie\\Noah 6. Geburtstag';
+  const existsReal = async (abs: string) => abs === real;
+
+  it('schneidet Fliesstext-Ueberhang hinter dem Pfad weg', async () => {
+    expect(await longestExistingPrefix(real + ' und 339 MB', existsReal)).toBe(real);
+  });
+
+  it('exakt existierender Pfad bleibt unveraendert', async () => {
+    expect(await longestExistingPrefix(real, existsReal)).toBe(real);
+  });
+
+  it('nicht existente Datei faellt auf den existierenden Ordner zurueck', async () => {
+    const dir = 'C:\\data\\reports';
+    const exists = async (abs: string) => abs === dir;
+    expect(await longestExistingPrefix('C:\\data\\reports\\q4 final.xlsx', exists)).toBe(
+      dir
+    );
+  });
+
+  it('nichts existiert -> null (nicht unter das Laufwerk kuerzen)', async () => {
+    expect(
+      await longestExistingPrefix('C:\\gibtsnicht\\x y z', async () => false)
+    ).toBe(null);
+  });
+});
 
 // --- Teil 1: reine Logik (win32-Semantik, wie auf Timos Rechner) ---
 

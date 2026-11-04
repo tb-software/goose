@@ -15,7 +15,7 @@ import { remarkLocalPaths } from '../tb/remarkLocalPaths';
 import { protectWindowsPaths } from '../tb/protectWindowsPaths';
 import { usePreview } from '../tb/preview/PreviewContext';
 import { previewKindFor } from '../tb/preview/previewKind';
-import { copyAbsolutePath } from '../tb/copyPath';
+import { copyResolvedPath } from '../tb/copyPath';
 // Improved oneDark theme for better comment contrast and readability
 const customOneDarkTheme = {
   ...oneDark,
@@ -441,7 +441,7 @@ const MarkdownContent = memo(function MarkdownContent({
             onMouseDown={(e) => {
               e.preventDefault();
               e.stopPropagation();
-              void copyAbsolutePath(pathMenu.path);
+              void copyResolvedPath(pathMenu.path);
               setPathMenu(null);
             }}
           >
