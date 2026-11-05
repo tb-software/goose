@@ -13,6 +13,9 @@ interface ModuleStatus {
   available: boolean;
   installed: boolean;
   target: string;
+  installedVersion: string | null;
+  feedVersion: string | null;
+  updateAvailable: boolean;
 }
 
 export default function TbModulesSettings() {
@@ -55,7 +58,8 @@ export default function TbModulesSettings() {
     [refresh]
   );
 
-  const anyInstallable = mods.some((m) => m.available && !m.installed);
+  const anyInstallable = mods.some((m) => m.available && (!m.installed || m.updateAvailable));
+  const anyUpdate = mods.some((m) => m.updateAvailable);
 
   return (
     <Card className="pb-4">
@@ -74,7 +78,11 @@ export default function TbModulesSettings() {
             disabled={busy !== null || !anyInstallable}
             onClick={() => install()}
           >
-            {busy === '__all__' ? 'Installiere …' : 'Fehlende installieren / aktualisieren'}
+            {busy === '__all__'
+              ? 'Installiere …'
+              : anyUpdate
+                ? 'Updates & fehlende installieren'
+                : 'Fehlende installieren / aktualisieren'}
           </Button>
           <Button variant="outline" size="sm" disabled={busy !== null} onClick={() => void refresh()}>
             Status aktualisieren
@@ -91,8 +99,14 @@ export default function TbModulesSettings() {
               <div className="min-w-0">
                 <div className="text-sm font-medium text-text-primary flex items-center gap-2">
                   {m.name}
-                  {m.installed ? (
-                    <span className="text-[11px] text-green-600 dark:text-green-400">✓ installiert</span>
+                  {m.updateAvailable ? (
+                    <span className="text-[11px] text-amber-600 dark:text-amber-400">
+                      ⬆ Update verfügbar{m.feedVersion ? ` (${m.installedVersion ?? '?'} → ${m.feedVersion})` : ''}
+                    </span>
+                  ) : m.installed ? (
+                    <span className="text-[11px] text-green-600 dark:text-green-400">
+                      ✓ installiert{m.installedVersion ? ` (${m.installedVersion})` : ''}
+                    </span>
                   ) : m.available ? (
                     <span className="text-[11px] text-text-secondary">nicht installiert</span>
                   ) : (
@@ -109,12 +123,18 @@ export default function TbModulesSettings() {
               </div>
               {m.available && (
                 <Button
-                  variant={m.installed ? 'outline' : 'default'}
+                  variant={m.installed && !m.updateAvailable ? 'outline' : 'default'}
                   size="sm"
                   disabled={busy !== null}
                   onClick={() => install(m.key)}
                 >
-                  {busy === m.key ? '…' : m.installed ? 'Neu installieren' : 'Installieren'}
+                  {busy === m.key
+                    ? '…'
+                    : m.updateAvailable
+                      ? 'Update'
+                      : m.installed
+                        ? 'Neu installieren'
+                        : 'Installieren'}
                 </Button>
               )}
             </div>

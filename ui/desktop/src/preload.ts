@@ -279,6 +279,9 @@ type ElectronAPI = {
       available: boolean;
       installed: boolean;
       target: string;
+      installedVersion: string | null;
+      feedVersion: string | null;
+      updateAvailable: boolean;
     }[]
   >;
   tbInstallModules: (onlyKey?: string) => Promise<{

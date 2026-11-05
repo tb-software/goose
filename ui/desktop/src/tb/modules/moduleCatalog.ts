@@ -114,39 +114,112 @@ export interface ModuleStatus {
   available: boolean; // Feed vorhanden -> installierbar
   installed: boolean; // erwartete Exe liegt am Zielort
   target: string; // Zielordner
+  installedVersion: string | null; // aus dem Versions-Marker am Zielort (null = unbekannt/alt)
+  feedVersion: string | null; // hoechste Version laut Feed (null = offline/nicht ermittelbar)
+  updateAvailable: boolean; // installiert + bekannte Version < Feed-Version
 }
 
-// Status je Modul: ist die erwartete Exe am Zielort vorhanden (installiert)?
-export async function moduleStatus(): Promise<ModuleStatus[]> {
-  const out: ModuleStatus[] = [];
-  for (const m of MODULE_CATALOG) {
-    const target = path.join(applicationsBase(), m.installDir);
-    let installed: boolean;
-    try {
-      await fs.access(path.join(target, m.verifyRel));
-      installed = true;
-    } catch {
-      installed = false;
-    }
-    out.push({
-      key: m.key,
-      name: m.name,
-      description: m.description,
-      note: m.note,
-      available: m.feedUrl !== null,
-      installed,
-      target,
-    });
+// Dateiname des Versions-Markers, den installOne am Zielort hinterlegt (generisch fuer alle Module).
+const VERSION_MARKER = '.module-version';
+
+// Version aus einer Feed-Zip-URL ziehen: ".../LenaX-Browser-MCP-v0.1.1.zip" -> "0.1.1".
+export function parseVersionFromUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  const m = /[-_]v(\d+(?:\.\d+){0,3})\.zip(?:$|\?)/i.exec(url);
+  return m ? m[1] : null;
+}
+
+// Numerischer Versionsvergleich (dot-separiert). -1 a<b, 0 gleich, 1 a>b.
+export function compareVersions(a: string, b: string): number {
+  const pa = a.split('.').map((x) => parseInt(x, 10) || 0);
+  const pb = b.split('.').map((x) => parseInt(x, 10) || 0);
+  const n = Math.max(pa.length, pb.length);
+  for (let i = 0; i < n; i++) {
+    const d = (pa[i] ?? 0) - (pb[i] ?? 0);
+    if (d !== 0) return d < 0 ? -1 : 1;
   }
-  return out;
+  return 0;
 }
 
-async function downloadToFile(url: string, destFile: string): Promise<void> {
+// Hoechste Feed-Version ermitteln, OHNE die (grosse) Zip herunterzuladen: dem latest.ashx-302 folgen
+// und die Version aus der Ziel-URL lesen; den Body sofort verwerfen. Resilient: offline -> null.
+async function fetchFeedVersion(feedUrl: string): Promise<string | null> {
+  const ctl = new AbortController();
+  const to = setTimeout(() => ctl.abort(), 8000);
+  try {
+    const r = await fetch(feedUrl, { redirect: 'follow', signal: ctl.signal });
+    const finalUrl = r.url;
+    try {
+      await r.body?.cancel();
+    } catch {
+      /* egal */
+    }
+    return parseVersionFromUrl(finalUrl);
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(to);
+  }
+}
+
+async function readInstalledVersion(target: string): Promise<string | null> {
+  try {
+    const v = (await fs.readFile(path.join(target, VERSION_MARKER), 'utf8')).trim();
+    return /^\d+(?:\.\d+){0,3}$/.test(v) ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+// Status je Modul: installiert? welche Version? gibt es auf dem Feed eine neuere? Die Feed-Abfrage
+// laeuft parallel ueber alle Module und ist resilient (offline -> feedVersion null -> kein Update-Hinweis).
+export async function moduleStatus(): Promise<ModuleStatus[]> {
+  return Promise.all(
+    MODULE_CATALOG.map(async (m): Promise<ModuleStatus> => {
+      const target = path.join(applicationsBase(), m.installDir);
+      let installed: boolean;
+      try {
+        await fs.access(path.join(target, m.verifyRel));
+        installed = true;
+      } catch {
+        installed = false;
+      }
+      const [installedVersion, feedVersion] = await Promise.all([
+        installed ? readInstalledVersion(target) : Promise.resolve(null),
+        m.feedUrl ? fetchFeedVersion(m.feedUrl) : Promise.resolve(null),
+      ]);
+      // Update nur melden, wenn installiert UND beide Versionen bekannt UND installiert < Feed.
+      // Ohne Marker (Alt-Install, installedVersion null) KEIN Fehlalarm - der Nutzer kann weiter
+      // "Neu installieren" (holt ohnehin die aktuelle Feed-Version).
+      const updateAvailable =
+        installed &&
+        !!feedVersion &&
+        !!installedVersion &&
+        compareVersions(installedVersion, feedVersion) < 0;
+      return {
+        key: m.key,
+        name: m.name,
+        description: m.description,
+        note: m.note,
+        available: m.feedUrl !== null,
+        installed,
+        target,
+        installedVersion,
+        feedVersion,
+        updateAvailable,
+      };
+    })
+  );
+}
+
+// Laedt die Datei und gibt die FINALE URL nach dem 302-Follow zurueck (traegt die Version im Namen).
+async function downloadToFile(url: string, destFile: string): Promise<string> {
   const resp = await fetch(url, { redirect: 'follow' });
   if (!resp.ok || !resp.body) {
     throw new Error(`Download HTTP ${resp.status}`);
   }
   await pipeline(Readable.fromWeb(resp.body as unknown as import('stream/web').ReadableStream), createWriteStream(destFile));
+  return resp.url;
 }
 
 async function expandArchive(zipFile: string, destDir: string): Promise<void> {
@@ -200,11 +273,17 @@ async function installOne(mod: ModuleEntry): Promise<ModuleResult> {
   const extractDir = path.join(tmp, 'x');
   try {
     log.info(`[TB] Modul ${mod.name}: lade ${mod.feedUrl}`);
-    await downloadToFile(mod.feedUrl, zipFile);
+    const finalUrl = await downloadToFile(mod.feedUrl, zipFile);
     await expandArchive(zipFile, extractDir);
     const root = await contentRoot(extractDir);
     await fs.mkdir(target, { recursive: true });
     await fs.cp(root, target, { recursive: true, force: true });
+    // Versions-Marker am Zielort hinterlegen (aus dem Feed-Dateinamen), damit kuenftig "Update
+    // verfuegbar" erkannt wird. Scheitert nie hart - ohne Marker gilt der Alt-Install-Pfad.
+    const installedVer = parseVersionFromUrl(finalUrl);
+    if (installedVer) {
+      await fs.writeFile(path.join(target, VERSION_MARKER), installedVer, 'utf8').catch(() => {});
+    }
     const exe = path.join(target, mod.verifyRel);
     try {
       await fs.access(exe);
