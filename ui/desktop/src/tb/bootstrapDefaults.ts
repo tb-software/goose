@@ -351,7 +351,13 @@ function seedManagedMcp(cfgDir: string, spec: ManagedMcp): void {
     const parsed = (yaml.parse(raw) ?? {}) as {
       extensions?: Record<string, { cmd?: string; enabled?: boolean }>;
     };
-    const exe = firstExisting(spec.exeCandidates);
+    // TB-Software: die in TB-Goose GEBUENDELTE Exe (resources/bin bzw. src/bin) hat Vorrang vor
+    // separat installierten Modulen. So ist die Browser-Engine Teil des App-Updates (fleet-weit,
+    // kein Modul-Update noetig) und passt immer zur App-Version.
+    const bundledExe = app.isPackaged
+      ? path.join(process.resourcesPath, 'bin', spec.exeName)
+      : path.join(app.getAppPath(), 'src', 'bin', spec.exeName);
+    const exe = firstExisting([bundledExe, ...spec.exeCandidates]);
     const existing = parsed.extensions?.[spec.key];
 
     if (existing) {
