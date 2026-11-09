@@ -538,9 +538,14 @@ app.whenReady().then(() => {
   );
 });
 
-if (process.env.ENABLE_PLAYWRIGHT) {
-  const debugPort = process.env.PLAYWRIGHT_DEBUG_PORT || '9222';
-  console.log(`[Main] Enabling Playwright remote debugging on port ${debugPort}`);
+// TB-Software: Remote-Debugging-Port fuer die Agenten-Steuerung des EINGEBETTETEN Browsers
+// (lenax-browser-mcp im CDP-Modus) immer oeffnen. Chromium bindet ihn standardmaessig nur an
+// 127.0.0.1 (localhost), nicht nach aussen. E2E (ENABLE_PLAYWRIGHT) darf den Port ueberschreiben.
+{
+  const debugPort = process.env.ENABLE_PLAYWRIGHT
+    ? process.env.PLAYWRIGHT_DEBUG_PORT || '9222'
+    : process.env.LENAX_BROWSER_CDP_PORT || '9335';
+  console.log(`[Main] Remote debugging (embedded browser agent control) on 127.0.0.1:${debugPort}`);
   app.commandLine.appendSwitch('remote-debugging-port', debugPort);
 }
 

@@ -290,15 +290,17 @@ const MANAGED_MCPS: ManagedMcp[] = [
     key: 'lenax-browser',
     name: 'LenaX-Browser',
     description:
-      'LenaX Browser Bridge - steuert das laufende Chrome (Tabs, navigieren, klicken, tippen, lesen, Screenshots). Braucht die Chrome-Extension (CBCM) + einmalige Aktivierung.',
+      'LenaX-Browser - steuert den in TB-Goose eingebetteten Browser (Vorschau-Panel rechts): navigieren, klicken, tippen, lesen, Screenshots. Oeffnet das Panel bei Bedarf selbst. Kein externes Chrome und keine Erweiterung noetig.',
     exeName: 'lenax-browser-mcp.exe',
     exeCandidates: [
       'D:\\_AI\\Applications\\LenaX-Browser\\lenax-browser-mcp.exe',
       'C:\\_AI\\Applications\\LenaX-Browser\\lenax-browser-mcp.exe',
     ],
     envs: {
-      LENAX_BROWSER_AUTO_PAIR: '1',
-      LENAX_BROWSER_EXT_ID: 'bedngflaokoihocadhlkalmofnglmjof',
+      // CDP-Modus: steuert den eingebetteten Browser (Webview) ueber den Remote-Debugging-Port,
+      // den main.ts auf 127.0.0.1:9335 oeffnet. Kein Chrome-Extension-/Pairing-Weg mehr.
+      LENAX_BROWSER_CDP: '1',
+      LENAX_BROWSER_CDP_PORT: '9335',
     },
   },
   {
@@ -372,13 +374,24 @@ function seedManagedMcp(cfgDir: string, spec: ManagedMcp): void {
 
       const needsPathFix = String(existing.cmd ?? '').trim() !== exe; // Regel 3
       const needsEnable = existing.enabled !== true; // Regel 5
-      if (!needsPathFix && !needsEnable) return; // Regel 1: nichts zu tun.
+      // TB-Software: verwaltete envs + Beschreibung synchron halten. Noetig fuer den Umstieg der
+      // lenax-browser-Steuerung von Extension (WS) auf CDP (eingebetteter Browser): bestehende
+      // Eintraege bekommen so LENAX_BROWSER_CDP nachtraeglich. Nur bei verwalteten Specs (eigene Exe).
+      const existingRec = existing as Record<string, unknown>;
+      const needsEnvs =
+        !!spec.envs && JSON.stringify(existingRec.envs ?? {}) !== JSON.stringify(spec.envs);
+      const needsDesc = String(existingRec.description ?? '') !== spec.description;
+      if (!needsPathFix && !needsEnable && !needsEnvs && !needsDesc) return; // Regel 1: nichts zu tun.
 
       const doc = yaml.parseDocument(raw);
       if (needsPathFix) doc.setIn(['extensions', spec.key, 'cmd'], exe);
       if (needsEnable) doc.setIn(['extensions', spec.key, 'enabled'], true);
+      if (needsEnvs) doc.setIn(['extensions', spec.key, 'envs'], spec.envs);
+      if (needsDesc) doc.setIn(['extensions', spec.key, 'description'], spec.description);
       fs.writeFileSync(cfgFile, doc.toString());
-      log.info(`[TB] ${spec.name}: aktualisiert (pathFix=${needsPathFix}, enable=${needsEnable}).`);
+      log.info(
+        `[TB] ${spec.name}: aktualisiert (pathFix=${needsPathFix}, enable=${needsEnable}, envs=${needsEnvs}, desc=${needsDesc}).`
+      );
       return;
     }
 

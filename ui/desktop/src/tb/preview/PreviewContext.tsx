@@ -2,7 +2,7 @@
 // Drei Quellen: ein Datei-PFAD (per IPC gelesen), ein INLINE-Item (data:-URL direkt
 // aus einer Chat-Nachricht, z. B. base64-Bild/Video) ODER ein eingebetteter BROWSER
 // (webview) mit Start-URL. Immer nur eine Quelle aktiv.
-import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
 export interface InlineItem {
   name: string;
@@ -63,6 +63,18 @@ export const PreviewProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setInline(null);
     setBrowserUrl(null);
   }, []);
+
+  // TB-Software: Agenten-Steuerung. Der lenax-browser-MCP (CDP-Modus) oeffnet/navigiert den
+  // eingebetteten Browser deterministisch ueber dieses globale Objekt - unabhaengig davon, ob der
+  // Globus-Knopf gerade sichtbar ist (z. B. auf der Einstellungen-Route). Nur Oeffnen/Schliessen;
+  // navigieren/klicken/lesen laeuft danach direkt per CDP im Webview.
+  useEffect(() => {
+    const w = window as unknown as { __lenaxBrowser?: unknown };
+    w.__lenaxBrowser = { open: (url?: string) => openBrowser(url), close: () => close() };
+    return () => {
+      delete (window as unknown as { __lenaxBrowser?: unknown }).__lenaxBrowser;
+    };
+  }, [openBrowser, close]);
 
   const value = useMemo<PreviewApi>(
     () => ({ path, inline, browserUrl, open, openInline, openBrowser, close }),
