@@ -553,6 +553,19 @@ body {
   -webkit-app-region: no-drag;
 }
 
+/* TB-Software: Chat-Nachrichten wie ein Textdokument lesbar/markierbar machen. Erzwingt die
+   Text-Selektion auf den Nachrichten-Blasen (Du + Assistent) und ihrem Markdown-Inhalt, damit sich
+   Text mit der Maus markieren und per Ctrl+C / Rechtsklick kopieren laesst. Der Textcursor zeigt an,
+   dass markiert werden kann. Code-Bloecke bleiben ebenfalls selektierbar. */
+.goose-message,
+.agent-message-bubble,
+.user-message-bubble,
+.user-message {
+  -webkit-user-select: text;
+  user-select: text;
+  cursor: auto;
+}
+
 .bg-inline-code {
   border-radius: 4px;
   color: var(--color-inline-code);

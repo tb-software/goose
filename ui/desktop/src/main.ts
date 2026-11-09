@@ -3,6 +3,7 @@ import {
   app,
   App,
   BrowserWindow,
+  clipboard,
   dialog,
   globalShortcut,
   ipcMain,
@@ -1548,6 +1549,45 @@ const createChat = async (
         })
       );
     }
+
+    // TB-Software: Chat lesbar/kopierbar machen. "Alles auswaehlen" + "Ganzen Chat kopieren" sind
+    // IMMER verfuegbar (auch ohne vorherige Selektion), damit sich der ganze Verlauf wie ein
+    // Textdokument herauskopieren laesst. "Ganzen Chat kopieren" sammelt den sichtbaren Text aller
+    // Nachrichten (Du + Assistent) in Reihenfolge und legt ihn als reinen Text in die Zwischenablage.
+    if (menu.items.length > 0) {
+      menu.append(new MenuItem({ type: 'separator' }));
+    }
+    menu.append(
+      new MenuItem({
+        label: menuT('Select All'),
+        accelerator: 'CmdOrCtrl+A',
+        role: 'selectAll',
+      })
+    );
+    menu.append(
+      new MenuItem({
+        label: 'Ganzen Chat kopieren',
+        click: async () => {
+          try {
+            const text: string = await mainWindow.webContents.executeJavaScript(
+              `(() => {
+                const parts = [];
+                document.querySelectorAll('.user-message-bubble, .goose-message').forEach((el) => {
+                  const who = el.classList.contains('user-message-bubble') ? 'Du' : 'Assistent';
+                  const t = (el.innerText || '').trim();
+                  if (t) parts.push(who + ':\\n' + t);
+                });
+                return parts.join('\\n\\n----\\n\\n');
+              })()`,
+              true
+            );
+            if (text) clipboard.writeText(text);
+          } catch (e) {
+            console.error('Ganzen Chat kopieren fehlgeschlagen:', e);
+          }
+        },
+      })
+    );
 
     if (menu.items.length > 0) {
       menu.popup();
