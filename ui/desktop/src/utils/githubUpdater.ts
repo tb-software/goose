@@ -643,87 +643,84 @@ export class GitHubUpdater {
       log.info(`GitHubUpdater: Version: ${latestVersion}`);
       log.info(`GitHubUpdater: Timestamp: ${new Date().toISOString()}`);
 
-      log.info('GitHubUpdater: Initiating download fetch request...');
-      const response = await fetch(downloadUrl);
-      const fetchDuration = Date.now() - downloadStartTime;
-      log.info(
-        `GitHubUpdater: Download response received in ${fetchDuration}ms - Status: ${response.status} ${response.statusText}`
-      );
-
-      if (!response.ok) {
-        throw new Error(`Download failed: ${response.status} ${response.statusText}`);
-      }
-
-      // Get total size from headers
-      const contentLength = response.headers.get('content-length');
-      const totalSize = contentLength ? parseInt(contentLength, 10) : 0;
-      log.info(
-        `GitHubUpdater: Content-Length: ${totalSize} bytes (${(totalSize / 1024 / 1024).toFixed(2)} MB)`
-      );
-
-      if (!response.body) {
-        throw new Error('Response body is null');
-      }
-      let lastReportedPercent = -1; // Track last reported percentage to throttle updates
-      let lastLoggedPercent = -1; // Track for logging at 10% intervals
-
-      // Read the response stream
-      log.info('GitHubUpdater: Starting to read response stream...');
-      const reader = response.body.getReader();
+      // TB-Software: Belastbarer Download mit RESUME. Grosse ZIPs (~232 MB) brachen bei vielen
+      // Nutzern mitten im Download ab (Server/Netz schliesst die Verbindung) -> abgeschnittene
+      // Datei wurde geschrieben -> Extraktion scheiterte ("missing executable"). Jetzt: bei Abbruch
+      // per HTTP-Range ab der letzten Position WEITERLADEN; erst bei vollstaendiger Groesse schreiben.
+      log.info('GitHubUpdater: Initiating resilient download (resume on drop)...');
       const chunks: Uint8Array[] = [];
       let downloadedSize = 0;
-      let lastProgressTime = Date.now();
+      let totalSize = 0;
+      let lastReportedPercent = -1;
+      let lastLoggedPercent = -1;
+      const MAX_ATTEMPTS = 10;
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        chunks.push(value);
-        downloadedSize += value.length;
-
-        // Report progress - only when percentage changes by at least 1%
-        if (totalSize > 0 && onProgress) {
-          const percent = Math.round((downloadedSize / totalSize) * 100);
-
-          // Only report if percent changed (throttles from hundreds/sec to ~100 total)
-          if (percent !== lastReportedPercent) {
-            onProgress(percent, downloadedSize, totalSize);
-            lastReportedPercent = percent;
-
-            // Log at 10% intervals for debugging
-            if (percent % 10 === 0 && percent !== lastLoggedPercent) {
-              const elapsed = Date.now() - downloadStartTime;
-              const speed = downloadedSize / (elapsed / 1000) / 1024; // KB/s
-              log.info(
-                `GitHubUpdater: Download progress ${percent}% (${(downloadedSize / 1024 / 1024).toFixed(2)}/${(totalSize / 1024 / 1024).toFixed(2)} MB) @ ${speed.toFixed(0)} KB/s`
-              );
-              lastLoggedPercent = percent;
+      for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+        const headers: Record<string, string> =
+          downloadedSize > 0 ? { Range: `bytes=${downloadedSize}-` } : {};
+        const response = await fetch(downloadUrl, { headers });
+        if (!response.ok && response.status !== 206) {
+          throw new Error(`Download failed: ${response.status} ${response.statusText}`);
+        }
+        if (attempt === 1) {
+          const cl = response.headers.get('content-length');
+          totalSize = cl ? parseInt(cl, 10) : 0;
+          log.info(
+            `GitHubUpdater: Content-Length: ${totalSize} bytes (${(totalSize / 1024 / 1024).toFixed(2)} MB)`
+          );
+        }
+        // Server ignoriert Range (liefert 200 statt 206) -> von vorne, sonst entstehen Dubletten.
+        if (downloadedSize > 0 && response.status === 200) {
+          log.warn('GitHubUpdater: Server ignoriert Range -> Download von vorne.');
+          chunks.length = 0;
+          downloadedSize = 0;
+        }
+        if (!response.body) {
+          throw new Error('Response body is null');
+        }
+        const reader = response.body.getReader();
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            chunks.push(value);
+            downloadedSize += value.length;
+            if (totalSize > 0 && onProgress) {
+              const percent = Math.round((downloadedSize / totalSize) * 100);
+              if (percent !== lastReportedPercent) {
+                onProgress(percent, downloadedSize, totalSize);
+                lastReportedPercent = percent;
+                if (percent % 10 === 0 && percent !== lastLoggedPercent) {
+                  log.info(
+                    `GitHubUpdater: Download ${percent}% (${(downloadedSize / 1024 / 1024).toFixed(2)}/${(totalSize / 1024 / 1024).toFixed(2)} MB)`
+                  );
+                  lastLoggedPercent = percent;
+                }
+              }
             }
           }
-        }
-
-        // Warn if no progress for 30 seconds
-        const now = Date.now();
-        if (now - lastProgressTime > 30000) {
+        } catch (streamErr) {
           log.warn(
-            `GitHubUpdater: Download appears slow - no significant progress in 30 seconds (${downloadedSize}/${totalSize} bytes)`
+            `GitHubUpdater: Stream abgebrochen bei ${downloadedSize}/${totalSize} B (Versuch ${attempt})`,
+            streamErr
           );
-          lastProgressTime = now;
-        } else if (value.length > 0) {
-          lastProgressTime = now;
         }
+        if (totalSize > 0 && downloadedSize >= totalSize) break;
+        if (totalSize === 0) break; // ohne bekannte Groesse kein verlaesslicher Resume
+        log.warn(
+          `GitHubUpdater: unvollstaendig (${downloadedSize}/${totalSize}) -> Resume-Versuch ${attempt + 1}`
+        );
       }
 
-      const downloadDuration = Date.now() - downloadStartTime;
-      const avgSpeed = downloadedSize / (downloadDuration / 1000) / 1024;
-      log.info(
-        `GitHubUpdater: Download stream complete - ${downloadedSize} bytes in ${downloadDuration}ms (avg ${avgSpeed.toFixed(0)} KB/s)`
-      );
+      // Vollstaendigkeit erzwingen: lieber hart scheitern (Retry) als eine halbe ZIP schreiben.
+      if (totalSize > 0 && downloadedSize !== totalSize) {
+        throw new Error(
+          `Download unvollstaendig: ${downloadedSize} von ${totalSize} Bytes nach ${MAX_ATTEMPTS} Versuchen (Verbindung bricht ab).`
+        );
+      }
 
-      // Combine chunks into a single buffer
-      log.info('GitHubUpdater: Combining chunks into buffer...');
+      log.info(`GitHubUpdater: Download vollstaendig - ${downloadedSize} bytes`);
       const buffer = Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)));
-      log.info(`GitHubUpdater: Buffer created - ${buffer.length} bytes`);
 
       const stagingDir = path.join(os.tmpdir(), `goose-update-${latestVersion}-${Date.now()}`);
       await fs.mkdir(stagingDir, { recursive: true });
