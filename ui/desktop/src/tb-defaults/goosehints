@@ -46,6 +46,21 @@ kann mitten in einem Tool-Aufruf enden). Deshalb:
   **nur dort**; brauchst du etwas **ausserhalb**, frage vorher kurz nach, statt es
   eigenmächtig zu tun.
 
+<!-- TB-BROWSER-BRIDGE:START -->
+## Browser nutzen
+
+- **Eingebetteter Browser, sofort nutzbar:** Unten in der Leiste öffnet der Globus-Knopf
+  „Browser" rechts ein Browser-Panel zum Surfen. Kein Konto, keine Installation. Das ist
+  der schnellste Weg, wenn jemand „im Browser" etwas zeigen oder öffnen will.
+- **Euer echtes Chrome (laufende Sitzung mit Logins) übernehmen:** läuft über die LenaX
+  Browser Bridge (Chrome-Erweiterung). Die wird gerade auf den Chrome Web Store umgestellt,
+  weil Chrome die selbst gehostete Zwangsinstallation blockiert. Schicke die Nutzerin daher
+  NICHT nach `chrome://extensions` zum „Entpackt laden" und NICHT auf eine
+  `chrome-extension://.../options.html`. Beides scheitert aktuell (ID per Policy reserviert
+  bzw. nicht installiert). Bis die Web-Store-Version steht, nutze den eingebetteten Browser.
+
+<!-- TB-BROWSER-BRIDGE:END -->
+
 <!-- TB-CANVIO:START -->
 ## Dateien lesen & konvertieren (Canvio)
 
