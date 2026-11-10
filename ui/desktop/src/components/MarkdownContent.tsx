@@ -10,6 +10,7 @@ import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { toLocalFsPath } from '../tb/localPath';
 import { resolveChatPath } from '../tb/resolveChatPath';
 import { revealLocalPath } from '../tb/revealPath';
+import { openChatPath, hasActiveSelection } from '../tb/openChatPath';
 import { useWorkingDir } from '../tb/WorkingDirContext';
 import { remarkLocalPaths } from '../tb/remarkLocalPaths';
 import { protectWindowsPaths } from '../tb/protectWindowsPaths';
@@ -189,13 +190,12 @@ const MarkdownCode = memo(
           className="break-all bg-inline-code whitespace-pre-wrap font-mono underline decoration-dotted cursor-pointer"
           title={kind !== 'unknown' ? 'Klick für Vorschau (rechts)' : 'Im Explorer anzeigen'}
           onClick={(e) => {
+            // Markiert der Nutzer gerade Text (auch ueber diesen Pfad hinweg)? Dann NICHT oeffnen.
+            if (hasActiveSelection()) return;
             e.preventDefault();
             e.stopPropagation();
-            if (preview && kind !== 'unknown') {
-              preview.open(inlinePath);
-            } else {
-              void revealLocalPath(inlinePath, workingDir);
-            }
+            // Pfad VERIFIZIERT ueber den Main-Prozess aufloesen (behebt "Vorschau findet Datei nicht").
+            void openChatPath(preview, codeContent, workingDir);
           }}
         >
           {children}
@@ -371,17 +371,16 @@ const MarkdownContent = memo(function MarkdownContent({
                     : undefined
                 }
                 onClick={(e) => {
+                  // Markiert der Nutzer gerade Text (z. B. um einen Pfad/eine URL zu kopieren)? Dann
+                  // den Klick NICHT als Navigation werten - sonst laesst sich der Link nie markieren.
+                  if (hasActiveSelection()) return;
                   e.preventDefault();
                   e.stopPropagation();
                   if (!props.href) return;
 
                   if (localPath) {
-                    // Vorschaubar -> rechtes Panel; sonst im Explorer markieren.
-                    if (preview && previewKindFor(localPath) !== 'unknown') {
-                      preview.open(localPath);
-                    } else {
-                      void revealLocalPath(localPath, workingDir);
-                    }
+                    // Pfad VERIFIZIERT aufloesen (Main-Prozess) und oeffnen -> behebt "nicht gefunden".
+                    void openChatPath(preview, props.href, workingDir);
                   } else {
                     void handleOpenExternal(props.href);
                   }
@@ -412,7 +411,7 @@ const MarkdownContent = memo(function MarkdownContent({
                             kind: imgSrc.startsWith('data:video') ? 'video' : 'image',
                           });
                         } else {
-                          preview!.open(localPath!);
+                          void openChatPath(preview, imgSrc, workingDir);
                         }
                       }
                     : undefined
@@ -466,7 +465,7 @@ const MarkdownContent = memo(function MarkdownContent({
               onMouseDown={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                preview?.open(pathMenu.path);
+                void openChatPath(preview, pathMenu.path, workingDir);
                 setPathMenu(null);
               }}
             >

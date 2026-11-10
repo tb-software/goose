@@ -242,6 +242,8 @@ type ElectronAPI = {
     fullPath: string
   ) => Promise<{ ok: boolean; kind: 'dir' | 'file' | 'missing' }>;
   tbResolveFile: (raw: string) => Promise<{ ok: boolean; path: string | null; reason: string }>;
+  // TB-Software: zeigt die config.yaml (Zusatz-Modelle) markiert im Explorer.
+  tbRevealConfig: () => Promise<{ ok: boolean; path?: string; error?: string }>;
   tbReadFile: (path: string) => Promise<{
     ok: boolean;
     encoding?: 'utf8' | 'base64';
@@ -327,6 +329,17 @@ type ElectronAPI = {
     ok: boolean;
     error?: string;
     models: Array<{ id: string; contextLimit?: number }>;
+    // TB-Software: ergaenzende Modelle + Ausblend-Liste aus der config.yaml (tb_extra_models /
+    // tb_hide_models). Werden im Renderer mit der Live-Liste zusammengefuehrt (Dedup).
+    extras?: Array<{
+      id: string;
+      alias?: string;
+      subtext?: string;
+      contextLimit?: number;
+      reasoning?: boolean;
+      provider?: string;
+    }>;
+    hide?: string[];
   }>;
   // TB-Software: Wolke — PC als Wolken-Client (Milestone [13]).
   tbWolkeGet: () => Promise<{ config: TbWolkeConfig; status: TbWolkeStatus }>;
@@ -531,6 +544,7 @@ const electronAPI: ElectronAPI = {
     ipcRenderer.invoke('open-directory-in-explorer', directoryPath),
   showItemInFolder: (fullPath: string) => ipcRenderer.invoke('show-item-in-folder', fullPath),
   tbResolveFile: (raw: string) => ipcRenderer.invoke('tb-resolve-file', raw),
+  tbRevealConfig: () => ipcRenderer.invoke('tb-reveal-config'),
   tbReadFile: (path: string) => ipcRenderer.invoke('tb-read-file', path),
   tbListDir: (dir: string) => ipcRenderer.invoke('tb-list-dir', dir),
   tbDictationCorrect: (rawText: string) => ipcRenderer.invoke('tb-dictation-correct', rawText),

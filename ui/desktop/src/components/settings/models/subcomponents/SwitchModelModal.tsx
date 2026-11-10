@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
+import { toast } from 'react-toastify';
 import { Bot, ExternalLink } from 'lucide-react';
 import { defineMessages, useIntl } from '../../../../i18n';
 
@@ -823,6 +824,32 @@ export const SwitchModelModal = ({
               {attemptedSubmit && validationErrors.model && (
                 <div className="text-red-500 text-sm mt-1">{validationErrors.model}</div>
               )}
+
+              {/* TB-Software: eigene Modelle (neben t78.ch) ergaenzt man in der config.yaml
+                  (Bloecke tb_extra_models / tb_hide_models). Dieser Button zeigt GENAU diese Datei
+                  markiert im Explorer, damit nicht versehentlich eine falsche config.yaml editiert wird. */}
+              <div className="mt-1 border-t border-border-primary pt-3 flex flex-col gap-1">
+                <button
+                  type="button"
+                  className="self-start text-xs text-text-secondary hover:text-text-primary underline decoration-dotted cursor-pointer"
+                  onClick={() => {
+                    void window.electron.tbRevealConfig().then((r) => {
+                      if (!r?.ok) {
+                        toast.error('config.yaml konnte nicht im Explorer gezeigt werden.', {
+                          autoClose: 2500,
+                        });
+                      }
+                    });
+                  }}
+                  title="Oeffnet den Ordner und markiert die config.yaml, in der eigene Modelle stehen"
+                >
+                  Eigene Modelle hinzufuegen: config.yaml im Explorer zeigen
+                </button>
+                <span className="text-[11px] text-text-secondary">
+                  Modelle neben t78.ch ergaenzt du dort unter <code className="bg-inline-code">tb_extra_models</code>
+                  {' '}(Beispiel steht als Kommentar in der Datei).
+                </span>
+              </div>
 
               {thinkingEffortControl}
             </div>

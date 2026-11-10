@@ -12,6 +12,7 @@ import os from 'node:os';
 import { execFileSync } from 'node:child_process';
 import * as yaml from 'yaml';
 import log from '../utils/logger';
+import { parseTbProviders, buildCustomProvider } from './customProviders';
 
 // TB-Software: Die "auto:*"-Routing-Tags des Kilo/LenaX-Setups (keyless ueber den
 // gericom-Proxy, alle cost 0). Der Nutzer waehlt die AUFGABE, das Gateway routet auf
@@ -74,6 +75,51 @@ const TB_AUTO_MODELS = [
     context_limit: 131072,
   },
 ];
+
+// TB-Software: Kommentar-Block, der BESTEHENDEN config.yaml-Dateien per Migration angehaengt wird,
+// damit der Nutzer sieht, wo er eigene Modelle ergaenzt. Deckungsgleich mit src/tb-defaults/config.yaml.
+const TB_EXTRA_MODELS_DOC = `# --- Eigene Zusatz-Modelle (ergaenzen die Live-Liste vom Proxy) ---------------
+# Das Modell-Dropdown wird LIVE aus dem Proxy (/v1/models, nur die auto:*-Tags)
+# gefuellt. Hier kannst du es ZUSAETZLICH ergaenzen, ohne den Proxy zu aendern.
+# Jeder Eintrag erscheint zusaetzlich im Dropdown und routet ueber denselben
+# t78.ch-Provider und -Key. "name" = exakte Modell-ID, wie der Proxy sie kennt.
+# Doppelte IDs werden automatisch zusammengefuehrt (kein Duplikat im Dropdown).
+#
+# tb_extra_models:
+#   - name: qwen3.8-27b-tbs          # konkrete Fleet-Modell-ID (ueber t78.ch erreichbar)
+#     alias: "Qwen3.8 27B"           # Anzeigename im Dropdown
+#     subtext: "Konkret, ueber t78.ch"
+#     context_limit: 131072
+#   - name: auto:chat                # bestehendes Live-Tag nur umbenennen
+#     alias: "Auto: Chat (schnell)"
+#
+# Optional: Live-Tags im Dropdown ausblenden. So reduzierst du z. B. auf genau
+# auto:code / auto:chat / auto:fast, indem du Vision und Image ausblendest:
+#
+# tb_hide_models:
+#   - auto:vision
+#   - auto:image
+#
+# --- Fremde openai-kompatible Endpunkte (eigene Provider neben t78) -----------
+# Zusaetzliche Anbieter mit EIGENEM Endpunkt (eigener Server, api.deepseek.com, anderer
+# Proxy-Tenant). TB-Goose erzeugt daraus beim Start goose-native Provider-Dateien
+# (custom_providers\custom_<id>.json) + Key in secrets.yaml. Modelle erscheinen unter
+# "anderen Anbieter verwenden".
+#
+# tb_providers:
+#   - id: deepseek                         # -> Provider "custom_deepseek"
+#     name: DeepSeek
+#     base_url: https://api.deepseek.com/v1
+#     api_key: sk-...                      # weglassen, wenn kein Key noetig
+#     models:
+#       - deepseek-v4-flash
+#       - { name: deepseek-v4-pro, context_limit: 131072 }
+#
+# Optional ein solches Modell in die kuratierte Liste heben (sonst laeuft tb_extra_models ueber t78):
+#   tb_extra_models:
+#     - name: deepseek-v4-flash
+#       alias: "DeepSeek Flash"
+#       provider: custom_deepseek`;
 
 export function tbDefaultsDir(): string {
   // extraResource kopiert src/tb-defaults -> resources/tb-defaults (gepackt).
@@ -194,6 +240,9 @@ export function ensureTbDefaults(): void {
 
     // Einmalige Korrekturen an bestehenden Configs (Marker: tb-migrations.json).
     tbMigrateConfig(cfgDir);
+
+    // Eigene openai-kompatible Provider (fremde Endpunkte) aus config.yaml -> native custom_providers\.
+    ensureTbProviders(cfgDir);
 
     // LenaX-DB MCP standardmäßig verbinden. IMMER als Erweiterung eintragen (auch wenn die Exe
     // (noch) nicht gefunden wird) -> sichtbar + konfigurierbar. Gefunden = aktiv/verbunden,
@@ -472,9 +521,87 @@ function tbMigrateConfig(cfgDir: string): void {
     // Serving-Nodes hängen; 4096 ist Absicht, abgeschnittene Turns setzt der finish_reason:length-Fix fort.
 
     if (changed) fs.writeFileSync(cfgFile, doc.toString());
+
+    // (2) Dokumentations-Block fuer eigene Zusatz-Modelle an BESTEHENDE Configs anhaengen (reine
+    //     Kommentarzeilen -> aendert kein Verhalten, nur Sichtbarkeit: der Nutzer sieht, wo er
+    //     tb_extra_models / tb_hide_models eintraegt). Idempotent ueber Marker + Inhalts-Check.
+    if (!applied.includes('tb-extra-models-doc-v1')) {
+      try {
+        const cur = fs.readFileSync(cfgFile, 'utf8');
+        if (!/tb_extra_models/.test(cur)) {
+          fs.writeFileSync(cfgFile, cur.replace(/\s*$/, '') + '\n' + TB_EXTRA_MODELS_DOC + '\n');
+          log.info('[TB] config.yaml: Hinweisblock fuer eigene Zusatz-Modelle angehaengt.');
+        }
+      } catch (e) {
+        log.error('[TB] Anhaengen des Zusatz-Modelle-Hinweises fehlgeschlagen', e);
+      }
+      markDone('tb-extra-models-doc-v1');
+    }
+
     fs.writeFileSync(markerFile, JSON.stringify({ applied }, null, 2));
   } catch (e) {
     log.error('[TB] tbMigrateConfig fehlgeschlagen', e);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Eigene openai-kompatible Provider (FREMDE Endpunkte, z. B. eigener Server, api.deepseek.com,
+// anderer Proxy-Tenant) aus dem config.yaml-Block `tb_providers` in goose's natives Custom-Provider-
+// Format spiegeln: je Provider eine Datei custom_providers\<id>.json, Keys nach secrets.yaml. goose
+// registriert diese beim Start selbst -> der Provider erscheint in der Modellauswahl ("anderen
+// Anbieter verwenden"). Zerstoerungsfrei: nur von uns erzeugte Dateien (custom_<slug>.json) werden
+// geschrieben; per UI angelegte Provider bleiben unangetastet.
+// ---------------------------------------------------------------------------
+function ensureTbProviders(cfgDir: string): void {
+  try {
+    const cfgFile = path.join(cfgDir, 'config.yaml');
+    if (!fs.existsSync(cfgFile)) return;
+    const parsed = (yaml.parse(fs.readFileSync(cfgFile, 'utf8')) ?? {}) as {
+      tb_providers?: unknown;
+    };
+    const providers = parseTbProviders(parsed.tb_providers);
+    if (providers.length === 0) return;
+
+    const dir = path.join(cfgDir, 'custom_providers');
+    fs.mkdirSync(dir, { recursive: true });
+
+    const secretsFile = path.join(cfgDir, 'secrets.yaml');
+    let secrets: Record<string, unknown> = {};
+    try {
+      if (fs.existsSync(secretsFile)) {
+        secrets = (yaml.parse(fs.readFileSync(secretsFile, 'utf8')) ?? {}) as Record<string, unknown>;
+      }
+    } catch {
+      secrets = {};
+    }
+    let secretsChanged = false;
+
+    for (const p of providers) {
+      const built = buildCustomProvider(p);
+      const dst = path.join(dir, built.fileName);
+      const json = JSON.stringify(built.config, null, 2);
+      let write = true;
+      try {
+        if (fs.existsSync(dst) && fs.readFileSync(dst, 'utf8') === json) write = false;
+      } catch {
+        write = true;
+      }
+      if (write) {
+        fs.writeFileSync(dst, json);
+        log.info(`[TB] Custom-Provider geschrieben: ${built.fileName} (${built.config.base_url})`);
+      }
+      if (built.apiKeyEnv && built.apiKey && secrets[built.apiKeyEnv] !== built.apiKey) {
+        secrets[built.apiKeyEnv] = built.apiKey;
+        secretsChanged = true;
+      }
+    }
+
+    if (secretsChanged) {
+      fs.writeFileSync(secretsFile, yaml.stringify(secrets));
+      log.info('[TB] Provider-Secret(s) in secrets.yaml hinterlegt.');
+    }
+  } catch (e) {
+    log.error('[TB] ensureTbProviders fehlgeschlagen', e);
   }
 }
 

@@ -566,6 +566,20 @@ body {
   cursor: auto;
 }
 
+/* TB-Software: Auch die KLICKBAREN Pfad-/URL-Links (dotted underline, cursor pointer) muessen sich
+   markieren lassen. Ohne explizite Regel behandeln manche UA-/Prose-Styles Elemente mit Klick-
+   Handler als nicht-selektierbar -> der Nutzer kann einen Pfad/eine URL nicht mit der Maus
+   markieren. Der Klick-Handler oeffnet nur, wenn gerade NICHTS markiert ist (hasActiveSelection). */
+.goose-message a,
+.goose-message code,
+.agent-message-bubble a,
+.agent-message-bubble code,
+.user-message-bubble a,
+.user-message-bubble code {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 .bg-inline-code {
   border-radius: 4px;
   color: var(--color-inline-code);

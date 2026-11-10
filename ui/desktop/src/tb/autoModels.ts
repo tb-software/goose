@@ -67,12 +67,69 @@ function sortIds(ids: string[]): string[] {
   return [...rest, ...star];
 }
 
+interface ExtraModel {
+  id: string;
+  alias?: string;
+  subtext?: string;
+  contextLimit?: number;
+  reasoning?: boolean;
+  provider?: string;
+}
+
+// Fuehrt die Basis-Liste (live auto:* oder Offline-Fallback) mit den Benutzer-Zusatzmodellen
+// (tb_extra_models) zusammen und wendet die Ausblend-Liste (tb_hide_models) an. Dedup ueber den
+// Modellnamen: ein Zusatzeintrag mit gleicher ID ueberschreibt nur Anzeige-Meta eines Live-Tags
+// (z. B. Alias umbenennen), neue IDs werden hinten angehaengt (Datei-Reihenfolge). Alles routet
+// ueber denselben openai/t78.ch-Provider.
+export function mergeModels(base: Model[], extras: ExtraModel[], hide: string[]): Model[] {
+  const hidden = new Set(hide);
+  const byName = new Map<string, Model>();
+  const order: string[] = [];
+  for (const m of base) {
+    if (hidden.has(m.name)) continue;
+    if (!byName.has(m.name)) {
+      byName.set(m.name, { ...m });
+      order.push(m.name);
+    }
+  }
+  for (const e of extras) {
+    const id = (e?.id ?? '').trim();
+    if (!id || hidden.has(id)) continue;
+    const existing = byName.get(id);
+    if (existing) {
+      if (e.alias) existing.alias = e.alias;
+      if (e.subtext) existing.subtext = e.subtext;
+      if (e.contextLimit != null) existing.context_limit = e.contextLimit;
+      if (e.reasoning != null) existing.reasoning = e.reasoning;
+      continue;
+    }
+    const lbl = labelFor(id);
+    const meta = META[id];
+    byName.set(id, {
+      name: id,
+      // Eigener Provider (fremder Endpunkt) falls angegeben, sonst der openai/t78-Provider.
+      provider: e.provider && e.provider.length > 0 ? e.provider : 'openai',
+      alias: e.alias ?? lbl.alias,
+      subtext: e.subtext ?? lbl.subtext,
+      context_limit: e.contextLimit ?? meta?.contextLimit,
+      reasoning: e.reasoning ?? meta?.reasoning,
+    } as Model);
+    order.push(id);
+  }
+  return order.map((n) => byName.get(n)!).filter(Boolean);
+}
+
 export async function fetchAutoModels(): Promise<Model[]> {
+  let base: Model[] = [];
+  let extras: ExtraModel[] = [];
+  let hide: string[] = [];
   try {
     const r = await window.electron.tbAutoModels();
+    extras = Array.isArray(r?.extras) ? (r.extras as ExtraModel[]) : [];
+    hide = Array.isArray(r?.hide) ? r.hide : [];
     if (r?.ok && Array.isArray(r.models) && r.models.length > 0) {
       const byId = new Map(r.models.map((m) => [m.id, m]));
-      return sortIds(r.models.map((m) => m.id)).map((id) => {
+      base = sortIds(r.models.map((m) => m.id)).map((id) => {
         const lbl = labelFor(id);
         const meta = META[id];
         const live = byId.get(id);
@@ -89,5 +146,7 @@ export async function fetchAutoModels(): Promise<Model[]> {
   } catch {
     /* Fallback unten */
   }
-  return getPredefinedModelsFromEnv();
+  // Offline/Fehler: gebuendelte Liste als Basis; Zusatz-/Ausblendlisten gelten trotzdem.
+  if (base.length === 0) base = getPredefinedModelsFromEnv();
+  return mergeModels(base, extras, hide);
 }

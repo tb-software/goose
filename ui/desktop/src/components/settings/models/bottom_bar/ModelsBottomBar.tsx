@@ -57,12 +57,13 @@ const i18n = defineMessages({
   },
 });
 
-// TB-Software: TB-Goose spricht IMMER den eigenen LLM-Gateway (LLMProxy2, Tenant gericom) ueber die
-// openai-KOMPATIBLE Schnittstelle an - niemals das echte OpenAI. Darum den Provider-Anzeigenamen
-// 'OpenAI' (nur der Schnittstellen-Typ) durch den tatsaechlichen Provider 'gericom' ersetzen, damit
-// die Leiste keinen fremden Anbieter suggeriert. Andere Provider bleiben unveraendert.
+// TB-Software: 'openai' ist bei TB-Goose nur der Schnittstellen-TYP (openai-kompatibel), nicht der
+// Anbieter - jede Anfrage geht an den eigenen LLM-Gateway. In der Chat-Leiste blenden wir diesen
+// Transport-Typ ganz aus (leerer Label -> nichts anzeigen), weil er nur verwirrt. Echte, abweichende
+// Provider (eigene Endpunkte, local) bleiben sichtbar. Im Modell-Popup wird der Provider weiterhin
+// gezeigt (dort ist die Information gewollt).
 function tbProviderLabel(providerId: string, fallbackDisplay: string): string {
-  return providerId === 'openai' ? 'gericom' : fallbackDisplay;
+  return providerId === 'openai' ? '' : fallbackDisplay;
 }
 
 interface ModelsBottomBarProps {
@@ -257,7 +258,7 @@ export default function ModelsBottomBar({
           </h6>
           <p className="flex items-center justify-between text-sm mx-2 pb-2 border-b mb-2">
             {menuModelLabel}
-            {!isModelLoading && displayProvider && ` — ${displayProvider}`}
+            {!isModelLoading && displayProvider && ` · ${displayProvider}`}
           </p>
           {shouldShowResolvedModel && resolvedDisplayModelName && (
             <div className="mx-2 pb-2 border-b mb-2">
@@ -281,7 +282,11 @@ export default function ModelsBottomBar({
                 >
                   <History className="mr-2 h-3.5 w-3.5 flex-shrink-0 text-text-secondary" />
                   <span className="truncate">
-                    {getModelDisplayName(recent.model)} — {recent.provider}
+                    {getModelDisplayName(recent.model)}
+                    {(() => {
+                      const p = tbProviderLabel(recent.provider, recent.provider);
+                      return p ? ` · ${p}` : '';
+                    })()}
                   </span>
                 </DropdownMenuItem>
               ))}

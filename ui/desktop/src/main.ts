@@ -3637,7 +3637,72 @@ async function appMain() {
   // Kategorien (z. B. auto:fast) AUTOMATISCH im Modell-Dropdown, ohne statische Pflege. Nur die
   // auto:*-Tags (und '*') werden zurueckgegeben - die konkreten Fleet-Modelle bleiben verborgen
   // (Laien-UX). Bei Fehler/Offline liefert der Renderer die gebuendelte Fallback-Liste.
+  // TB-Software: Benutzer-Zusatzmodelle + Ausblend-Liste aus der config.yaml lesen (optional,
+  // ergaenzend zur Live-Liste). tb_extra_models fuegt eigene Modelle ins Dropdown ein (routen ueber
+  // denselben t78.ch-Provider/Key); tb_hide_models blendet Live-Tags aus (z. B. auf auto:code/chat/fast
+  // reduzieren). Fehlt die Datei/der Block oder ist er kaputt -> leere Listen, nie ein Fehler.
+  const tbReadExtraModels = (): {
+    extras: Array<{
+      id: string;
+      alias?: string;
+      subtext?: string;
+      contextLimit?: number;
+      reasoning?: boolean;
+      provider?: string;
+    }>;
+    hide: string[];
+  } => {
+    try {
+      const appData = process.env.APPDATA;
+      if (!appData) return { extras: [], hide: [] };
+      const cfgFile = path.join(appData, 'Block', 'goose', 'config', 'config.yaml');
+      const parsed = (yaml.parse(fsSync.readFileSync(cfgFile, 'utf8')) ?? {}) as {
+        tb_extra_models?: unknown;
+        tb_hide_models?: unknown;
+      };
+      const extras: Array<{
+        id: string;
+        alias?: string;
+        subtext?: string;
+        contextLimit?: number;
+        reasoning?: boolean;
+        provider?: string;
+      }> = [];
+      if (Array.isArray(parsed.tb_extra_models)) {
+        for (const raw of parsed.tb_extra_models) {
+          if (!raw || typeof raw !== 'object') continue;
+          const r = raw as Record<string, unknown>;
+          const id = String(r.name ?? r.id ?? '').trim();
+          if (!id) continue;
+          const ctx =
+            typeof r.context_limit === 'number'
+              ? r.context_limit
+              : typeof r.contextLimit === 'number'
+                ? r.contextLimit
+                : undefined;
+          extras.push({
+            id,
+            alias: typeof r.alias === 'string' ? r.alias : undefined,
+            subtext: typeof r.subtext === 'string' ? r.subtext : undefined,
+            contextLimit: ctx,
+            reasoning: typeof r.reasoning === 'boolean' ? r.reasoning : undefined,
+            // Optionaler Provider: zeigt auf einen eigenen custom_*-Provider (fremder Endpunkt).
+            // Fehlt er, laeuft das Modell wie bisher ueber den openai/t78-Provider.
+            provider: typeof r.provider === 'string' ? r.provider.trim() : undefined,
+          });
+        }
+      }
+      const hide = Array.isArray(parsed.tb_hide_models)
+        ? parsed.tb_hide_models.map((x) => String(x).trim()).filter(Boolean)
+        : [];
+      return { extras, hide };
+    } catch {
+      return { extras: [], hide: [] };
+    }
+  };
+
   ipcMain.handle('tb-auto-models', async () => {
+    const { extras, hide } = tbReadExtraModels();
     try {
       const host = (process.env.OPENAI_HOST || 'https://t78.ch').replace(/\/+$/, '');
       const basePath =
@@ -3661,7 +3726,13 @@ async function appMain() {
       });
       clearTimeout(timer);
       if (!resp.ok) {
-        return { ok: false, error: `HTTP ${resp.status}`, models: [] as { id: string; contextLimit?: number }[] };
+        return {
+          ok: false,
+          error: `HTTP ${resp.status}`,
+          models: [] as { id: string; contextLimit?: number }[],
+          extras,
+          hide,
+        };
       }
       const data = (await resp.json()) as {
         data?: { id?: string; context_limit?: number; context_length?: number }[];
@@ -3672,13 +3743,37 @@ async function appMain() {
           contextLimit: m.context_limit ?? m.context_length ?? undefined,
         }))
         .filter((m) => m.id && (m.id.startsWith('auto:') || m.id === '*'));
-      return { ok: true, models };
+      return { ok: true, models, extras, hide };
     } catch (error) {
       return {
         ok: false,
         error: (error as Error).message,
         models: [] as { id: string; contextLimit?: number }[],
+        extras,
+        hide,
       };
+    }
+  });
+
+  // TB-Software: Die config.yaml (Zusatz-Modelle neben t78.ch: tb_extra_models / tb_hide_models)
+  // im Explorer markiert zeigen. Der Button im Modell-Popup ruft dies, damit der Nutzer sofort die
+  // RICHTIGE Datei bearbeitet (nicht eine beliebige config.yaml). Existiert sie noch nicht, wird der
+  // config-Ordner geoeffnet. Nutzt den robusten explorer.exe /select-Weg (shell.showItemInFolder ist
+  // auf diesem Setup kaputt).
+  ipcMain.handle('tb-reveal-config', async () => {
+    try {
+      const cfgDir = path.join(app.getPath('appData'), 'Block', 'goose', 'config');
+      const cfgFile = path.join(cfgDir, 'config.yaml');
+      try {
+        await fs.access(cfgFile);
+        if (tbRevealFileInFolder(cfgFile)) return { ok: true, path: cfgFile };
+      } catch {
+        /* Datei (noch) nicht vorhanden -> stattdessen den Ordner oeffnen */
+      }
+      await shell.openPath(cfgDir);
+      return { ok: true, path: cfgFile };
+    } catch (error) {
+      return { ok: false, error: (error as Error).message };
     }
   });
 

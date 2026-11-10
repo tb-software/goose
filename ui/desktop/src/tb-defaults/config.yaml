@@ -56,3 +56,48 @@ GOOSE_TELEMETRY_ENABLED: true      # Nutzungs-Events an EIGENES EU-PostHog; unte
 # bei Shell/Compute (siehe T4). Der UI-Toggle bleibt als Fallback fuer nicht-tool-faehige Modelle.
 GOOSE_TOOLSHIM: false
 GOOSE_TOOLSHIM_OLLAMA_MODEL: "qwen2.5:3b"
+
+# --- Eigene Zusatz-Modelle (ergaenzen die Live-Liste vom Proxy) ---------------
+# Das Modell-Dropdown wird LIVE aus dem Proxy (/v1/models, nur die auto:*-Tags)
+# gefuellt. Hier kannst du es ZUSAETZLICH ergaenzen, ohne den Proxy zu aendern.
+# Jeder Eintrag erscheint zusaetzlich im Dropdown und routet ueber denselben
+# t78.ch-Provider und -Key. "name" = exakte Modell-ID, wie der Proxy sie kennt.
+# Doppelte IDs werden automatisch zusammengefuehrt (kein Duplikat im Dropdown).
+#
+# tb_extra_models:
+#   - name: qwen3.8-27b-tbs          # konkrete Fleet-Modell-ID (ueber t78.ch erreichbar)
+#     alias: "Qwen3.8 27B"           # Anzeigename im Dropdown
+#     subtext: "Konkret, ueber t78.ch"
+#     context_limit: 131072
+#   - name: auto:chat                # bestehendes Live-Tag nur umbenennen
+#     alias: "Auto: Chat (schnell)"
+#
+# Optional: Live-Tags im Dropdown ausblenden. So reduzierst du z. B. auf genau
+# auto:code / auto:chat / auto:fast, indem du Vision und Image ausblendest:
+#
+# tb_hide_models:
+#   - auto:vision
+#   - auto:image
+
+# --- Fremde openai-kompatible Endpunkte (eigene Provider neben t78) -----------
+# Hier definierst du ZUSAETZLICHE Anbieter mit EIGENEM Endpunkt (eigener Server,
+# api.deepseek.com, ein anderer Proxy-Tenant ...). TB-Goose schreibt daraus beim
+# Start automatisch goose-native Provider-Dateien (custom_providers\custom_<id>.json)
+# und hinterlegt den Key in secrets.yaml. Die Modelle erscheinen dann unter
+# "anderen Anbieter verwenden" in der Modellauswahl.
+#
+# tb_providers:
+#   - id: deepseek                         # -> Provider "custom_deepseek"
+#     name: DeepSeek
+#     base_url: https://api.deepseek.com/v1
+#     api_key: sk-...                      # weglassen, wenn der Endpunkt keinen Key braucht
+#     models:
+#       - deepseek-v4-flash
+#       - { name: deepseek-v4-pro, context_limit: 131072 }
+#
+# Optional kannst du so ein Modell auch in die kuratierte Liste oben heben, indem du
+# bei tb_extra_models zusaetzlich "provider" setzt (sonst laeuft es ueber t78):
+#   tb_extra_models:
+#     - name: deepseek-v4-flash
+#       alias: "DeepSeek Flash"
+#       provider: custom_deepseek
