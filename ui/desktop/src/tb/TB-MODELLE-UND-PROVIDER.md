@@ -59,6 +59,33 @@ tb_providers:
       - { name: deepseek-v4-pro, context_limit: 131072 }
 ```
 
+### Kontextlaenge (wichtig fuer die Verdichtung)
+
+`context_limit` je Modell steuert, ab wann TB-Goose den Verlauf verdichtet (Compaction). Fehlt der
+Wert, gilt ein konservativer Default und es wird evtl. zu frueh verdichtet. Darum fuer Modelle mit
+grossem Fenster (z. B. DeepSeek Flash) den echten Wert setzen:
+
+```yaml
+    models:
+      - { name: deepseek-v4-flash, context_limit: 131072 }   # echten Wert des Modells eintragen
+```
+
+Hinweis: `GOOSE_MAX_TOKENS` (Standard 4096) ist das AUSGABE-Budget pro Turn, NICHT das Kontextfenster;
+es hat mit `context_limit` nichts zu tun.
+
+### Kosten pro Modell (optional)
+
+Fuer die Kosten-/Nutzungsanzeige lassen sich Preise je 1 Token angeben:
+
+```yaml
+    models:
+      - name: deepseek-v4-flash
+        context_limit: 131072
+        input_token_cost: 0.00000027     # Preis pro Input-Token
+        output_token_cost: 0.0000011     # Preis pro Output-Token
+        currency: USD
+```
+
 - Die Modelle erscheinen in der Modellauswahl unter "anderen Anbieter verwenden". Mit einem
   `tb_extra_models`-Eintrag inkl. `provider:` lassen sie sich zusaetzlich in die kuratierte Liste
   heben.

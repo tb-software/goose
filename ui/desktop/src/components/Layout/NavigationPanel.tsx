@@ -286,6 +286,15 @@ const SessionRow: React.FC<SessionRowProps> = ({
             onEditStart={() => setIsEditing(true)}
             onEditEnd={() => setIsEditing(false)}
           />
+          {/* TB-Software: dezente Anzahl der Nachrichten im Chat (klein, mit Tooltip). */}
+          {session.messageCount > 0 && (
+            <span
+              className="flex-shrink-0 text-[10px] font-mono text-text-tertiary tabular-nums opacity-70 group-hover/row:opacity-100"
+              title={`${session.messageCount} Nachrichten in diesem Chat`}
+            >
+              {session.messageCount}
+            </span>
+          )}
           <SessionIndicators isStreaming={isStreaming} hasUnread={hasUnread} hasError={hasError} />
           <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
             <DropdownMenuTrigger asChild>
@@ -378,6 +387,37 @@ export const Navigation: React.FC<{ className?: string }> = ({ className }) => {
       return true;
     });
   }, [appsExtensionEnabled]);
+
+  // TB-Software: Nur "Neuer Chat" und "Suche" immer sichtbar; der Rest (Wolke, Rezepte,
+  // Erweiterungen, Sitzungsverlauf, Papierkorb ...) hinter einem einklappbaren "Mehr". Zustand
+  // gemerkt (localStorage), Default eingeklappt.
+  const ALWAYS_NAV = useMemo(() => new Set(['home', 'tb-search']), []);
+  const [navMoreOpen, setNavMoreOpen] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('tb.nav.more') === '1';
+    } catch {
+      return false;
+    }
+  });
+  const toggleNavMore = useCallback(() => {
+    setNavMoreOpen((v) => {
+      const next = !v;
+      try {
+        localStorage.setItem('tb.nav.more', next ? '1' : '0');
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }, []);
+  const alwaysItems = useMemo(
+    () => visibleItems.filter((i) => ALWAYS_NAV.has(i.id)),
+    [visibleItems, ALWAYS_NAV]
+  );
+  const moreItems = useMemo(
+    () => visibleItems.filter((i) => !ALWAYS_NAV.has(i.id)),
+    [visibleItems, ALWAYS_NAV]
+  );
 
   const isActive = useCallback((path: string) => location.pathname === path, [location.pathname]);
 
@@ -527,7 +567,7 @@ export const Navigation: React.FC<{ className?: string }> = ({ className }) => {
       <div className="h-[48px] no-drag" />
 
       <div className="px-2 flex flex-col gap-0.5">
-        {visibleItems.map((item) => (
+        {alwaysItems.map((item) => (
           <NavRow
             key={item.id}
             item={item}
@@ -535,6 +575,33 @@ export const Navigation: React.FC<{ className?: string }> = ({ className }) => {
             onClick={() => handleNavClick(item.path)}
           />
         ))}
+        {moreItems.length > 0 && (
+          <>
+            <button
+              onClick={toggleNavMore}
+              className={navItemClass(false)}
+              aria-expanded={navMoreOpen}
+              title={navMoreOpen ? 'Weniger anzeigen' : 'Mehr anzeigen'}
+            >
+              <MoreHorizontal className="w-5 h-5 flex-shrink-0 text-text-secondary" />
+              <span className="text-left flex-1 truncate">{navMoreOpen ? 'Weniger' : 'Mehr'}</span>
+              {navMoreOpen ? (
+                <ChevronDown className="w-4 h-4 text-text-secondary" />
+              ) : (
+                <ChevronRight className="w-4 h-4 text-text-secondary" />
+              )}
+            </button>
+            {navMoreOpen &&
+              moreItems.map((item) => (
+                <NavRow
+                  key={item.id}
+                  item={item}
+                  active={isActive(item.path)}
+                  onClick={() => handleNavClick(item.path)}
+                />
+              ))}
+          </>
+        )}
       </div>
 
       <div className="flex-1 min-h-0 flex flex-col mt-3">

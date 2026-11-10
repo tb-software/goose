@@ -11,6 +11,10 @@ export interface TbProviderModelInput {
   name: string;
   context_limit?: number;
   reasoning?: boolean;
+  // Kosten pro 1 Token (wie goose ModelInfo). Fuer die Kosten-/Nutzungsanzeige. Optional.
+  input_token_cost?: number;
+  output_token_cost?: number;
+  currency?: string;
 }
 
 export interface TbProviderInput {
@@ -62,6 +66,9 @@ export function buildCustomProvider(input: TbProviderInput): BuiltCustomProvider
         const out: Record<string, unknown> = { name: m.name.trim() };
         if (typeof m.context_limit === 'number') out.context_limit = m.context_limit;
         if (typeof m.reasoning === 'boolean') out.reasoning = m.reasoning;
+        if (typeof m.input_token_cost === 'number') out.input_token_cost = m.input_token_cost;
+        if (typeof m.output_token_cost === 'number') out.output_token_cost = m.output_token_cost;
+        if (typeof m.currency === 'string') out.currency = m.currency;
         return out;
       }
       return null;
@@ -114,6 +121,11 @@ export function parseTbProviders(raw: unknown): TbProviderInput[] {
               name: mo.name,
               context_limit: typeof mo.context_limit === 'number' ? mo.context_limit : undefined,
               reasoning: typeof mo.reasoning === 'boolean' ? mo.reasoning : undefined,
+              input_token_cost:
+                typeof mo.input_token_cost === 'number' ? mo.input_token_cost : undefined,
+              output_token_cost:
+                typeof mo.output_token_cost === 'number' ? mo.output_token_cost : undefined,
+              currency: typeof mo.currency === 'string' ? mo.currency : undefined,
             } as TbProviderModelInput;
         }
         return null;

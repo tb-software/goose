@@ -1542,6 +1542,22 @@ const createChat = async (
           role: 'copy',
         })
       );
+      // TB-Software: Wenn die Auswahl einen Datei-Pfad enthaelt, auch "Pfad kopieren" anbieten
+      // (kopiert nur den Pfad, ohne umgebenden Text). Windows (C:\..., auch mit Leerzeichen), UNC,
+      // Unix (/a/b). Laengsten Treffer nehmen.
+      const sel = params.selectionText;
+      const pathMatches = [
+        ...sel.matchAll(/[A-Za-z]:\\[^\r\n"'<>|?*]+|\\\\[^\r\n"'<>|?*]+|\/[^\s"'<>|)\]]{2,}\/[^\s"'<>|)\]]*/g),
+      ].map((m) => m[0].replace(/[.,;:!?]+$/, ''));
+      const bestPath = pathMatches.sort((a, b) => b.length - a.length)[0];
+      if (bestPath) {
+        menu.append(
+          new MenuItem({
+            label: 'Pfad kopieren',
+            click: () => clipboard.writeText(bestPath),
+          })
+        );
+      }
     }
 
     // Only show paste in editable fields (text inputs)

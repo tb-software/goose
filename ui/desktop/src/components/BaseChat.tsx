@@ -5,7 +5,6 @@ import { useLocation, useNavigate } from 'react-router';
 import { SearchView } from './conversation/SearchView';
 import LoadingGoose from './LoadingGoose';
 import { useTurnStatus } from '../tb/status/useTurnStatus';
-import { ChatCopyContextMenu } from '../tb/ChatCopyContextMenu';
 import ProgressiveMessageList from './ProgressiveMessageList';
 import { MainPanelLayout } from './Layout/MainPanelLayout';
 import ChatInput from './ChatInput';
@@ -478,7 +477,10 @@ export default function BaseChat({
             {messages.length > 0 || recipe ? (
               <>
                 <SearchView>
-                  <ChatCopyContextMenu workingDir={session?.working_dir}>
+                  {/* TB-Software: Kein eigenes React-Kontextmenue mehr - es unterdrueckte per
+                      preventDefault das zuverlaessige native Electron-Menue (Kopieren/Auswaehlen/
+                      Ganzer Chat), ohne selbst sauber zu erscheinen. Jetzt uebernimmt das native
+                      Menue (main.ts, webContents 'context-menu'). Text bleibt markierbar (CSS). */}
                   <ProgressiveMessageList
                     messages={messages}
                     sessionId={sessionId}
@@ -490,7 +492,6 @@ export default function BaseChat({
                     onMessageUpdate={onMessageUpdate}
                     submitElicitationResponse={submitElicitationResponse}
                   />
-                  </ChatCopyContextMenu>
                 </SearchView>
 
                 <div className="block h-8" />
