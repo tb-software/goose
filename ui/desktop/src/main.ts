@@ -87,7 +87,7 @@ import {
   readSelectedRecipe,
 } from './desktopFileAccess';
 import {
-  resolveWorkspaceFile,
+  resolveWorkspaceFileRoots,
   findExactBasenameUnder,
   WORKSPACE_SEARCH_IGNORE_DIRS,
 } from './tb/resolveWorkspaceFile';
@@ -3429,10 +3429,26 @@ async function appMain() {
   // Arbeitsverzeichnis des Fensters. Kontext-unabhaengig ueber den Main-Prozess: er kennt die
   // kanonische Workdir je Fenster (desktopFileAccess), unabhaengig vom React-Context des Renderers.
   // Liefert { ok, path, reason } (reason: exists | resolved | found | missing | empty | no-working-dir).
-  ipcMain.handle('tb-resolve-file', async (event, raw: string) => {
+  ipcMain.handle('tb-resolve-file', async (event, raw: string, callerWorkingDir?: string) => {
     const windowId = BrowserWindow.fromWebContents(event.sender)?.id;
-    const workingDir = windowId != null ? desktopFileAccess.getWorkingDirectory(windowId) : null;
-    return resolveWorkspaceFile(raw, workingDir, {
+    const boundDir = windowId != null ? desktopFileAccess.getWorkingDirectory(windowId) : null;
+
+    // TB-Software: Der AKTUELLE Chat-Ordner (session.working_dir) ist massgeblich und kann sich
+    // waehrend des Projekts aendern; die Fenster-Bindung (boundDir) ist nur der Startwert und
+    // veraltet beim Ordnerwechsel. Darum den vom Renderer gemeldeten Ordner ZUERST probieren -
+    // aber nur, wenn er wirklich ein existierendes Verzeichnis ist - und die Bindung als Fallback.
+    const caller = (callerWorkingDir ?? '').trim();
+    let currentDir: string | null = null;
+    if (caller) {
+      try {
+        const st = await fs.stat(caller);
+        if (st.isDirectory()) currentDir = path.resolve(caller);
+      } catch {
+        /* kein gueltiges Verzeichnis -> faellt auf boundDir zurueck */
+      }
+    }
+
+    return resolveWorkspaceFileRoots(raw, [currentDir, boundDir], {
       exists: async (abs) => {
         try {
           await fs.access(abs);

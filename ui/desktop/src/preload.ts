@@ -241,7 +241,10 @@ type ElectronAPI = {
   showItemInFolder: (
     fullPath: string
   ) => Promise<{ ok: boolean; kind: 'dir' | 'file' | 'missing' }>;
-  tbResolveFile: (raw: string) => Promise<{ ok: boolean; path: string | null; reason: string }>;
+  tbResolveFile: (
+    raw: string,
+    workingDir?: string
+  ) => Promise<{ ok: boolean; path: string | null; reason: string }>;
   // TB-Software: zeigt die config.yaml (Zusatz-Modelle) markiert im Explorer.
   tbRevealConfig: () => Promise<{ ok: boolean; path?: string; error?: string }>;
   tbReadFile: (path: string) => Promise<{
@@ -543,7 +546,8 @@ const electronAPI: ElectronAPI = {
   openDirectoryInExplorer: (directoryPath: string) =>
     ipcRenderer.invoke('open-directory-in-explorer', directoryPath),
   showItemInFolder: (fullPath: string) => ipcRenderer.invoke('show-item-in-folder', fullPath),
-  tbResolveFile: (raw: string) => ipcRenderer.invoke('tb-resolve-file', raw),
+  tbResolveFile: (raw: string, workingDir?: string) =>
+    ipcRenderer.invoke('tb-resolve-file', raw, workingDir),
   tbRevealConfig: () => ipcRenderer.invoke('tb-reveal-config'),
   tbReadFile: (path: string) => ipcRenderer.invoke('tb-read-file', path),
   tbListDir: (dir: string) => ipcRenderer.invoke('tb-list-dir', dir),

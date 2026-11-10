@@ -109,6 +109,50 @@ export async function resolveWorkspaceFile(
   return { ok: false, path: null, reason: 'missing' };
 }
 
+// Reihenfolge, in der Scheitern-Gruende "aussagekraeftig" sind (hoeher = eher berichten). 'missing'
+// heisst: es gab eine Wurzel und wir haben vergeblich gesucht - das ist informativer als "keine
+// Workdir" oder "leer".
+function reasonRank(r: ResolveReason): number {
+  switch (r) {
+    case 'missing':
+      return 3;
+    case 'no-working-dir':
+      return 2;
+    case 'empty':
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+// TB-Software: Loest einen Chat-Pfad gegen MEHRERE Kandidaten-Wurzeln auf, in Reihenfolge, und
+// liefert den ersten Treffer. Grund: das Arbeitsverzeichnis eines Chats kann sich WAEHREND des
+// Projekts aendern (session.working_dir), waehrend die beim Fenster-Start gebundene Workdir
+// veraltet. Der Renderer gibt daher seinen aktuellen Ordner ZUERST mit; die Fenster-Bindung bleibt
+// nur als Fallback. Absolute Pfade haengen nicht von der Wurzel ab (werden in der ersten Runde
+// geklaert). Wurzeln werden dedupliziert; mindestens eine (ggf. null) wird probiert, damit die
+// Absolut-/Praefix-Logik auch ohne Workdir laeuft.
+export async function resolveWorkspaceFileRoots(
+  raw: string,
+  roots: Array<string | null | undefined>,
+  deps: ResolveDeps
+): Promise<ResolveResult> {
+  const uniq: Array<string | null> = [];
+  for (const r of roots) {
+    const v = (r ?? '').trim() || null;
+    if (!uniq.includes(v)) uniq.push(v);
+  }
+  if (uniq.length === 0) uniq.push(null);
+
+  let best: ResolveResult | null = null;
+  for (const root of uniq) {
+    const res = await resolveWorkspaceFile(raw, root, deps);
+    if (res.ok) return res;
+    if (!best || reasonRank(res.reason) > reasonRank(best.reason)) best = res;
+  }
+  return best ?? { ok: false, path: null, reason: 'missing' };
+}
+
 // TB-Software: Laengster existierender Praefix eines absoluten Pfades. Schneidet - solange der
 // Pfad nicht existiert - das jeweils letzte Leerzeichen-Token bzw. Pfad-Segment weg, bis eine
 // Datei ODER ein Ordner existiert oder nur noch das Laufwerk uebrig ist. Deckt Fliesstext-Ueberhang

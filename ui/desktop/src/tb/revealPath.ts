@@ -16,7 +16,9 @@ export async function revealLocalPath(
     // Dateinamen / relative Pfade / Unterordner ab, egal wie der Basis-Pfad aussieht.
     let target = fullPath;
     try {
-      const r = await window.electron.tbResolveFile?.(fullPath);
+      // Aktuellen Chat-Ordner mitgeben (kann sich waehrend des Projekts aendern); der Resolver
+      // bevorzugt ihn vor der veralteten Fenster-Bindung.
+      const r = await window.electron.tbResolveFile?.(fullPath, workingDir ?? undefined);
       if (r?.ok && r.path) target = r.path;
     } catch {
       /* ignorieren - mit dem Rohpfad weiterversuchen */

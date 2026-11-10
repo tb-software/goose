@@ -9,6 +9,7 @@ import fsp from 'node:fs/promises';
 import os from 'node:os';
 import {
   resolveWorkspaceFile,
+  resolveWorkspaceFileRoots,
   findExactBasenameUnder,
   longestExistingPrefix,
   type ResolveDeps,
@@ -180,6 +181,104 @@ describe('resolveWorkspaceFile (reine Logik)', () => {
     };
     const r = await resolveWorkspaceFile('sub/a.md', '/home/ws', deps);
     expect(r).toEqual({ ok: true, path: '/home/ws/sub/a.md', reason: 'resolved' });
+  });
+});
+
+// --- Teil 1b: Mehr-Wurzel-Aufloesung (Ordnerwechsel waehrend des Projekts) ---
+
+// Deps, bei denen die Basisnamen-Suche VOM Wurzelverzeichnis abhaengt (anders als makeDeps, das
+// fuer jede Wurzel denselben Treffer liefert). Noetig, um "Datei nur unter Wurzel A" zu pruefen.
+function makeRootDeps(
+  existing: string[],
+  byName: Record<string, string> = {} // `${rootLower}|${basenameLower}` -> abs
+): ResolveDeps {
+  const norm = (x: string) => path.win32.normalize(x).toLowerCase();
+  const set = new Set(existing.map(norm));
+  return {
+    pathApi: path.win32,
+    exists: async (abs: string) => set.has(norm(abs)),
+    findByBasename: async (root: string, basename: string) =>
+      byName[`${norm(root)}|${basename.toLowerCase()}`] ?? null,
+  };
+}
+
+describe('resolveWorkspaceFileRoots (Ordner kann sich waehrend des Projekts aendern)', () => {
+  const NEU = 'G:\\Proj\\neu'; // aktueller Chat-Ordner (session.working_dir)
+  const ALT = 'G:\\Proj\\alt'; // beim Fenster-Start gebundene, VERALTETE Workdir
+
+  it('Unterordner unter dem AKTUELLEN Ordner wird gefunden (nicht gegen die veraltete Wurzel)', async () => {
+    const deps = makeRootDeps(['G:\\Proj\\neu\\docs\\report.md']);
+    // Nur-veraltet (wie der Bug) scheitert:
+    const stale = await resolveWorkspaceFile('docs/report.md', ALT, deps);
+    expect(stale.ok).toBe(false);
+    // Aktueller Ordner zuerst -> Treffer:
+    const fixed = await resolveWorkspaceFileRoots('docs/report.md', [NEU, ALT], deps);
+    expect(fixed).toEqual({
+      ok: true,
+      path: 'G:\\Proj\\neu\\docs\\report.md',
+      reason: 'resolved',
+    });
+  });
+
+  it('blosser Name wird unter dem aktuellen Ordner aufgeloest', async () => {
+    const deps = makeRootDeps(['G:\\Proj\\neu\\ergebnis.md']);
+    const r = await resolveWorkspaceFileRoots('ergebnis.md', [NEU, ALT], deps);
+    expect(r.path).toBe('G:\\Proj\\neu\\ergebnis.md');
+    expect(r.reason).toBe('resolved');
+  });
+
+  it('faellt auf die gebundene Wurzel zurueck, wenn die Datei nur dort liegt', async () => {
+    const deps = makeRootDeps(['G:\\Proj\\alt\\nurdort.md']);
+    const r = await resolveWorkspaceFileRoots('nurdort.md', [NEU, ALT], deps);
+    expect(r.path).toBe('G:\\Proj\\alt\\nurdort.md');
+    expect(r.reason).toBe('resolved');
+  });
+
+  it('erste Wurzel gewinnt bei Namensgleichheit in beiden Ordnern', async () => {
+    const deps = makeRootDeps(['G:\\Proj\\neu\\gleich.md', 'G:\\Proj\\alt\\gleich.md']);
+    const r = await resolveWorkspaceFileRoots('gleich.md', [NEU, ALT], deps);
+    expect(r.path).toBe('G:\\Proj\\neu\\gleich.md');
+  });
+
+  it('Basisnamen-Suche nutzt die jeweilige Wurzel (tiefer Treffer nur im aktuellen Ordner)', async () => {
+    const deps = makeRootDeps([], {
+      [`${path.win32.normalize(NEU).toLowerCase()}|tief.md`]: 'G:\\Proj\\neu\\a\\b\\tief.md',
+    });
+    const r = await resolveWorkspaceFileRoots('tief.md', [NEU, ALT], deps);
+    expect(r).toEqual({ ok: true, path: 'G:\\Proj\\neu\\a\\b\\tief.md', reason: 'found' });
+  });
+
+  it('absoluter, existierender Pfad ist unabhaengig von den Wurzeln', async () => {
+    const deps = makeRootDeps(['D:\\woanders\\x.md']);
+    const r = await resolveWorkspaceFileRoots('D:\\woanders\\x.md', [NEU, ALT], deps);
+    expect(r).toEqual({ ok: true, path: 'D:\\woanders\\x.md', reason: 'exists' });
+  });
+
+  it('dedupliziert Wurzeln und ignoriert leere/null-Eintraege', async () => {
+    const deps = makeRootDeps(['G:\\Proj\\neu\\d.md']);
+    const r = await resolveWorkspaceFileRoots('d.md', [null, NEU, '', NEU, '  '], deps);
+    expect(r.path).toBe('G:\\Proj\\neu\\d.md');
+    expect(r.reason).toBe('resolved');
+  });
+
+  it('nirgends gefunden -> missing (aussagekraeftigster Grund), nicht no-working-dir', async () => {
+    const deps = makeRootDeps([]);
+    // NEU gueltig (-> missing), ALT null (-> no-working-dir): 'missing' soll berichtet werden.
+    const r = await resolveWorkspaceFileRoots('fehlt.md', [NEU, null], deps);
+    expect(r).toEqual({ ok: false, path: null, reason: 'missing' });
+  });
+
+  it('ganz ohne Wurzeln: relativer Name -> no-working-dir, absoluter Treffer -> exists', async () => {
+    const deps = makeRootDeps(['C:\\a\\b.md']);
+    expect((await resolveWorkspaceFileRoots('rel.md', [], deps)).reason).toBe('no-working-dir');
+    expect((await resolveWorkspaceFileRoots('rel.md', [null, undefined], deps)).reason).toBe(
+      'no-working-dir'
+    );
+    expect((await resolveWorkspaceFileRoots('C:\\a\\b.md', [], deps)).reason).toBe('exists');
+  });
+
+  it('leere Eingabe -> empty', async () => {
+    expect((await resolveWorkspaceFileRoots('', [NEU, ALT], makeRootDeps([]))).reason).toBe('empty');
   });
 });
 

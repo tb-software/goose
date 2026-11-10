@@ -17,7 +17,11 @@ export async function resolveChatPathVerified(
   workingDir?: string | null
 ): Promise<string | null> {
   try {
-    const r = await window.electron.tbResolveFile?.(raw);
+    // Den AKTUELLEN Chat-Ordner mitgeben (session.working_dir). Er kann sich waehrend des Projekts
+    // aendern; der Main-Resolver bevorzugt ihn vor der beim Fenster-Start gebundenen, veralteten
+    // Workdir. Ohne diesen Wert loeste der Resolver gegen die falsche Wurzel auf (Unterordner/
+    // relative Pfade schlugen fehl).
+    const r = await window.electron.tbResolveFile?.(raw, workingDir ?? undefined);
     if (r?.ok && r.path) return r.path;
   } catch {
     /* offline / kein IPC -> synchrone Vermutung unten */
