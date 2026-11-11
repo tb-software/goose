@@ -91,6 +91,7 @@ import {
   findExactBasenameUnder,
   WORKSPACE_SEARCH_IGNORE_DIRS,
 } from './tb/resolveWorkspaceFile';
+import { explorerSelectSpec } from './tb/explorerReveal';
 
 function shouldSetupUpdater(): boolean {
   // Setup updater if either the flag is enabled OR dev updates are enabled
@@ -3263,10 +3264,17 @@ async function appMain() {
   const tbRevealFileInFolder = (raw: string): boolean => {
     try {
       if (process.platform === 'win32') {
-        // Trailing-Separatoren entfernen (ausser direkt nach dem Laufwerk: "C:\").
-        const trimmed = raw.replace(/[\\/]+$/, (m, off) => (off <= 2 ? m : ''));
-        const native = path.win32.normalize(trimmed);
-        spawn('explorer.exe', ['/select,' + native], { detached: true, stdio: 'ignore' }).unref();
+        // explorer.exe /select braucht den Pfad in EIGENEN Anfuehrungszeichen: /select,"<pfad>"
+        // (das Token "/select," davor OHNE). Ohne windowsVerbatimArguments klammert Node ein
+        // Argument mit Leerzeichen komplett ein -> "/select,C:\...\Mit Leerzeichen\x.html" - diese
+        // Form ignoriert explorer und oeffnet den Standardordner ("im falschen Pfad"). Der reine,
+        // getestete Kern baut das korrekt (siehe tb/explorerReveal.ts).
+        const spec = explorerSelectSpec(raw);
+        spawn(spec.file, spec.args, {
+          detached: true,
+          stdio: 'ignore',
+          windowsVerbatimArguments: spec.windowsVerbatimArguments,
+        }).unref();
         return true;
       }
       shell.showItemInFolder(raw);

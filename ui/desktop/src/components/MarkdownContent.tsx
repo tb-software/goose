@@ -10,13 +10,13 @@ import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { toLocalFsPath } from '../tb/localPath';
 import { resolveChatPath } from '../tb/resolveChatPath';
 import { revealLocalPath } from '../tb/revealPath';
-import { openChatPath, hasActiveSelection } from '../tb/openChatPath';
+import { openChatPath, hasActiveSelection, resolveChatPathVerified } from '../tb/openChatPath';
 import { useWorkingDir } from '../tb/WorkingDirContext';
 import { remarkLocalPaths } from '../tb/remarkLocalPaths';
 import { protectWindowsPaths } from '../tb/protectWindowsPaths';
 import { usePreview } from '../tb/preview/PreviewContext';
 import { previewKindFor } from '../tb/preview/previewKind';
-import { copyResolvedPath } from '../tb/copyPath';
+import { copyAbsolutePath } from '../tb/copyPath';
 // Improved oneDark theme for better comment contrast and readability
 const customOneDarkTheme = {
   ...oneDark,
@@ -156,6 +156,15 @@ const CodeBlock = memo(function CodeBlock({
   );
 });
 
+// TB-Software: Handler der Pfad-Infokarte (Hover/Rechtsklick) ueber Context verfuegbar machen,
+// damit auch das modul-ebene MarkdownCode (Inline-Code-Pfade) dieselbe Karte nutzt wie Links/Bilder.
+interface PathPopoverHandlers {
+  onLinkHover: (e: React.MouseEvent, raw: string) => void;
+  onLinkLeave: () => void;
+  onLinkContext: (e: React.MouseEvent, raw: string) => void;
+}
+const PathPopoverCtx = React.createContext<PathPopoverHandlers | null>(null);
+
 const MarkdownCode = memo(
   React.forwardRef(function MarkdownCode(
     { inline, className, children, ...props }: CodeProps,
@@ -163,6 +172,7 @@ const MarkdownCode = memo(
   ) {
     const preview = usePreview();
     const workingDir = useWorkingDir();
+    const pop = React.useContext(PathPopoverCtx);
     const match = /language-(\w+)/.exec(className || '');
     const codeContent = String(children ?? '');
 
@@ -182,13 +192,17 @@ const MarkdownCode = memo(
     // Dateinamen/relative Pfade ab (letztere gegen das Arbeitsverzeichnis aufgeloest).
     const inlinePath = resolveChatPath(codeContent, workingDir);
     if (inlinePath) {
-      const kind = previewKindFor(inlinePath);
       return (
         <code
           ref={ref}
           {...props}
           className="break-all bg-inline-code whitespace-pre-wrap font-mono underline decoration-dotted cursor-pointer"
-          title={kind !== 'unknown' ? 'Klick für Vorschau (rechts)' : 'Im Explorer anzeigen'}
+          // Tooltip = voller (vermuteter) Pfad; die Infokarte zeigt beim Hovern den verifizierten
+          // Pfad samt Kopieren/Explorer/Vorschau. Kein "Klick"-Text mehr (Transparenz-Wunsch Timo).
+          title={inlinePath}
+          onMouseEnter={pop ? (e) => pop.onLinkHover(e, codeContent) : undefined}
+          onMouseLeave={pop ? pop.onLinkLeave : undefined}
+          onContextMenu={pop ? (e) => pop.onLinkContext(e, codeContent) : undefined}
           onClick={(e) => {
             // Markiert der Nutzer gerade Text (auch ueber diesen Pfad hinweg)? Dann NICHT oeffnen.
             if (hasActiveSelection()) return;
@@ -249,29 +263,117 @@ const MarkdownContent = memo(function MarkdownContent({
   const preview = usePreview();
   const workingDir = useWorkingDir();
 
-  // TB-Software: Rechtsklick-Menue fuer Pfad-Links (voller Pfad kopieren / im Explorer zeigen /
-  // Vorschau). Der aufgeloeste localPath ist der korrekte, absolute Pfad - so ist "Pfad kopieren"
-  // immer der volle Pfad, nicht der sichtbare Linktext.
-  const [pathMenu, setPathMenu] = useState<{
+  // TB-Software: Transparente Pfad-Infokarte fuer Datei-Links. Statt eines "Klick"-Hinweises zeigt
+  // sie beim Darueberfahren (und bei Rechtsklick) den VOLLEN, verifizierten Pfad und bietet
+  // "Pfad kopieren" / "Im Explorer" / "Vorschau" an. So sieht der Nutzer VOR dem Oeffnen, welche
+  // Datei wirklich gemeint ist (Grund: im Chat genannte Pfade sind manchmal mehrdeutig/falsch).
+  // path = erst synchrone Vermutung, dann der ueber den Main-Prozess verifizierte absolute Pfad.
+  const [pathPopover, setPathPopover] = useState<{
     x: number;
     y: number;
-    path: string;
+    raw: string;
+    path: string | null;
+    resolving: boolean;
     previewable: boolean;
+    pinned: boolean; // true = per Rechtsklick geoeffnet (bleibt, bis ausserhalb geklickt wird)
   } | null>(null);
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearHoverTimer = useCallback(() => {
+    if (hoverTimer.current) {
+      clearTimeout(hoverTimer.current);
+      hoverTimer.current = null;
+    }
+  }, []);
+
+  // Karte fuellen: sofort mit der synchronen Vermutung (sichtbar, kein Warten), danach mit dem
+  // ueber tb-resolve-file verifizierten Pfad (beruecksichtigt den AKTUELLEN Chat-Ordner).
+  const fillPathPopover = useCallback(
+    (x: number, y: number, raw: string, pinned: boolean) => {
+      const sync = resolveChatPath(raw, workingDir);
+      setPathPopover({
+        x,
+        y,
+        raw,
+        path: sync,
+        resolving: true,
+        previewable: !!(sync && preview && previewKindFor(sync) !== 'unknown'),
+        pinned,
+      });
+      void resolveChatPathVerified(raw, workingDir)
+        .then((p) => {
+          const full = p ?? sync;
+          setPathPopover((cur) =>
+            cur && cur.raw === raw
+              ? {
+                  ...cur,
+                  path: full,
+                  resolving: false,
+                  previewable: !!(full && preview && previewKindFor(full) !== 'unknown'),
+                }
+              : cur
+          );
+        })
+        .catch(() => {
+          setPathPopover((cur) => (cur && cur.raw === raw ? { ...cur, resolving: false } : cur));
+        });
+    },
+    [workingDir, preview]
+  );
+
+  // Hover UEBER einem Link: nach kurzer Verzoegerung die Karte unter dem Link zeigen.
+  const onLinkHover = useCallback(
+    (e: React.MouseEvent, raw: string) => {
+      clearHoverTimer();
+      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      const x = rect.left;
+      const y = rect.bottom + 4;
+      hoverTimer.current = setTimeout(() => fillPathPopover(x, y, raw, false), 220);
+    },
+    [clearHoverTimer, fillPathPopover]
+  );
+
+  // Maus verlaesst Link ODER Karte: mit Gnadenfrist schliessen (Maus darf in die Karte wandern).
+  // Eine gepinnte (per Rechtsklick geoeffnete) Karte bleibt stehen.
+  const onLinkLeave = useCallback(() => {
+    clearHoverTimer();
+    hoverTimer.current = setTimeout(() => {
+      setPathPopover((cur) => (cur && !cur.pinned ? null : cur));
+    }, 180);
+  }, [clearHoverTimer]);
+
+  const onLinkContext = useCallback(
+    (e: React.MouseEvent, raw: string) => {
+      e.preventDefault();
+      e.stopPropagation();
+      clearHoverTimer();
+      fillPathPopover(e.clientX, e.clientY, raw, true);
+    },
+    [clearHoverTimer, fillPathPopover]
+  );
+
+  // Gepinnte Karte schliessen bei Klick ausserhalb / Scrollen / Tastendruck.
   useEffect(() => {
-    if (!pathMenu) return;
-    const close = () => setPathMenu(null);
-    window.addEventListener('click', close);
+    if (!pathPopover) return;
+    const close = () => setPathPopover(null);
     window.addEventListener('scroll', close, true);
     window.addEventListener('keydown', close);
-    window.addEventListener('contextmenu', close);
+    window.addEventListener('click', close);
     return () => {
-      window.removeEventListener('click', close);
       window.removeEventListener('scroll', close, true);
       window.removeEventListener('keydown', close);
-      window.removeEventListener('contextmenu', close);
+      window.removeEventListener('click', close);
     };
-  }, [pathMenu]);
+  }, [pathPopover]);
+
+  // Hover-Timer beim Unmount aufraeumen.
+  useEffect(() => () => clearHoverTimer(), [clearHoverTimer]);
+
+  // Stabiles Handler-Objekt fuer den Context (auch das modul-ebene MarkdownCode nutzt es).
+  const popHandlers = useMemo(
+    () => ({ onLinkHover, onLinkLeave, onLinkContext }),
+    [onLinkHover, onLinkLeave, onLinkContext]
+  );
 
   const processedContent = useMemo(() => {
     try {
@@ -303,7 +405,7 @@ const MarkdownContent = memo(function MarkdownContent({
   );
 
   return (
-    <>
+    <PathPopoverCtx.Provider value={popHandlers}>
     <div
       className={`w-full overflow-x-hidden prose prose-sm text-text-primary dark:prose-invert max-w-full word-break font-sans
         prose-pre:p-0 prose-pre:m-0 !p-0
@@ -350,25 +452,20 @@ const MarkdownContent = memo(function MarkdownContent({
                 {...props}
                 target="_blank"
                 rel="noopener noreferrer"
-                title={localPath ? 'Klick: öffnen · Rechtsklick: Menü' : undefined}
+                // Tooltip = voller (vermuteter) Pfad; die Infokarte beim Hovern zeigt den
+                // verifizierten Pfad samt Kopieren/Explorer/Vorschau (kein "Klick"-Text).
+                title={localPath ?? undefined}
                 className={
                   localPath
                     ? `${props.className ?? ''} underline decoration-dotted cursor-pointer`.trim()
                     : props.className
                 }
+                onMouseEnter={
+                  localPath && props.href ? (e) => onLinkHover(e, props.href!) : undefined
+                }
+                onMouseLeave={localPath ? onLinkLeave : undefined}
                 onContextMenu={
-                  localPath
-                    ? (e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setPathMenu({
-                          x: e.clientX,
-                          y: e.clientY,
-                          path: localPath,
-                          previewable: !!preview && previewKindFor(localPath) !== 'unknown',
-                        });
-                      }
-                    : undefined
+                  localPath && props.href ? (e) => onLinkContext(e, props.href!) : undefined
                 }
                 onClick={(e) => {
                   // Markiert der Nutzer gerade Text (z. B. um einen Pfad/eine URL zu kopieren)? Dann
@@ -399,7 +496,12 @@ const MarkdownContent = memo(function MarkdownContent({
               <img
                 {...props}
                 className={`${props.className ?? ''} max-h-64 rounded ${clickable ? 'cursor-pointer' : ''}`.trim()}
-                title={clickable ? 'Klick für grosse Ansicht (rechts)' : props.title}
+                // Lokaler Bildpfad -> Tooltip = voller Pfad + Infokarte (Kopieren/Explorer/Vorschau);
+                // data:-URL hat keinen Pfad -> bisheriger Titel.
+                title={localPath ?? props.title}
+                onMouseEnter={localPath ? (e) => onLinkHover(e, imgSrc) : undefined}
+                onMouseLeave={localPath ? onLinkLeave : undefined}
+                onContextMenu={localPath ? (e) => onLinkContext(e, imgSrc) : undefined}
                 onClick={
                   clickable
                     ? (e) => {
@@ -425,48 +527,62 @@ const MarkdownContent = memo(function MarkdownContent({
         {processedContent}
       </ReactMarkdown>
     </div>
-      {pathMenu && (
+      {pathPopover && (
         <div
-          className="fixed z-[1000] min-w-[210px] rounded-md border border-border-primary bg-background-primary shadow-lg py-1 text-sm"
+          className="fixed z-[1000] max-w-[460px] min-w-[260px] rounded-md border border-border-primary bg-background-primary shadow-lg py-1 text-sm"
           style={{
-            left: Math.min(pathMenu.x, window.innerWidth - 230),
-            top: Math.min(pathMenu.y, window.innerHeight - 150),
+            left: Math.max(8, Math.min(pathPopover.x, window.innerWidth - 470)),
+            top: Math.max(8, Math.min(pathPopover.y, window.innerHeight - 200)),
           }}
+          onMouseEnter={clearHoverTimer}
+          onMouseLeave={onLinkLeave}
           onContextMenu={(e) => e.preventDefault()}
         >
+          {/* Voller, verifizierter Pfad - transparent sichtbar und markierbar (Transparenz-Wunsch). */}
+          <div className="px-3 pt-1.5 pb-2 border-b border-border-primary">
+            <div className="text-[10px] uppercase tracking-wide text-text-muted mb-0.5">
+              Voller Pfad{pathPopover.resolving ? ' (wird geprüft ...)' : ''}
+            </div>
+            <div className="font-mono text-xs break-all select-text text-text-primary">
+              {pathPopover.path || (pathPopover.resolving ? 'wird aufgelöst ...' : 'nicht gefunden')}
+            </div>
+          </div>
           <button
             type="button"
-            className="w-full text-left px-3 py-1.5 hover:bg-muted/50 text-text-primary cursor-pointer"
+            disabled={!pathPopover.path}
+            className="w-full text-left px-3 py-1.5 hover:bg-muted/50 text-text-primary cursor-pointer disabled:opacity-40 disabled:cursor-default"
             onMouseDown={(e) => {
               e.preventDefault();
               e.stopPropagation();
-              void copyResolvedPath(pathMenu.path);
-              setPathMenu(null);
+              // Genau den ANGEZEIGTEN (verifizierten) Pfad kopieren - was man sieht, wird kopiert.
+              void copyAbsolutePath(pathPopover.path);
+              setPathPopover(null);
             }}
           >
             Vollständigen Pfad kopieren
           </button>
           <button
             type="button"
-            className="w-full text-left px-3 py-1.5 hover:bg-muted/50 text-text-primary cursor-pointer"
+            disabled={!pathPopover.path}
+            className="w-full text-left px-3 py-1.5 hover:bg-muted/50 text-text-primary cursor-pointer disabled:opacity-40 disabled:cursor-default"
             onMouseDown={(e) => {
               e.preventDefault();
               e.stopPropagation();
-              void revealLocalPath(pathMenu.path, workingDir);
-              setPathMenu(null);
+              void revealLocalPath(pathPopover.path ?? pathPopover.raw, workingDir);
+              setPathPopover(null);
             }}
           >
             Im Explorer anzeigen
           </button>
-          {pathMenu.previewable && (
+          {pathPopover.previewable && (
             <button
               type="button"
               className="w-full text-left px-3 py-1.5 hover:bg-muted/50 text-text-primary cursor-pointer"
               onMouseDown={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                void openChatPath(preview, pathMenu.path, workingDir);
-                setPathMenu(null);
+                void openChatPath(preview, pathPopover.path ?? pathPopover.raw, workingDir);
+                setPathPopover(null);
               }}
             >
               Vorschau (rechts)
@@ -474,7 +590,7 @@ const MarkdownContent = memo(function MarkdownContent({
           )}
         </div>
       )}
-    </>
+    </PathPopoverCtx.Provider>
   );
 });
 

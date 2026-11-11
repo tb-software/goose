@@ -234,7 +234,7 @@ const PreviewBody: React.FC<{ path: string; reloadTick: number }> = ({ path, rel
             <button className="underline" onClick={() => void copyAbsolutePath(path)}>
               Pfad kopieren
             </button>
-            <button className="underline" onClick={() => void revealLocalPath(path)}>
+            <button className="underline" onClick={() => void revealLocalPath(path, workingDir)}>
               Im Explorer öffnen
             </button>
           </div>
@@ -358,6 +358,10 @@ const PreviewBody: React.FC<{ path: string; reloadTick: number }> = ({ path, rel
 
 export const PreviewPanel: React.FC = () => {
   const preview = usePreview();
+  // Aktueller Chat-Ordner (kann sich waehrend des Projekts aendern) - wird beim "Im Explorer
+  // anzeigen" mitgegeben, damit ein nicht-absoluter Pfad gegen den AKTUELLEN Ordner aufgeloest
+  // wird statt gegen die veraltete Fenster-Bindung.
+  const workingDir = useWorkingDir();
 
   const [width, setWidth] = useState<number>(() => {
     try {
@@ -499,7 +503,7 @@ export const PreviewPanel: React.FC = () => {
             <button
               className="no-drag p-1.5 rounded hover:bg-background-tertiary text-text-secondary"
               title="Im Explorer anzeigen"
-              onClick={() => void revealLocalPath(path)}
+              onClick={() => void revealLocalPath(path, workingDir)}
             >
               <FolderOpen className="w-4 h-4" />
             </button>
