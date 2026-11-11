@@ -226,19 +226,22 @@ describe('ProgressiveMessageList batching', () => {
     return onRenderingComplete;
   }
 
-  it('renders exactly one batch per delay in StrictMode', () => {
+  // TB-Software: Es wird vom ENDE her geladen (neueste zuerst sichtbar), aeltere wachsen nach oben.
+  it('renders exactly one batch per delay in StrictMode, newest first', () => {
     renderBatchedList();
 
-    expect(screen.queryByText('assistant-1')).not.toBeNull();
-    expect(screen.queryByText('assistant-2')).toBeNull();
+    // Erste Einheit = die 2 juengsten (assistant-8/-9), assistant-7 noch nicht.
+    expect(screen.queryByText('assistant-9')).not.toBeNull();
+    expect(screen.queryByText('assistant-8')).not.toBeNull();
+    expect(screen.queryByText('assistant-7')).toBeNull();
 
     act(() => vi.advanceTimersByTime(20));
-    expect(screen.queryByText('assistant-3')).not.toBeNull();
-    expect(screen.queryByText('assistant-4')).toBeNull();
+    expect(screen.queryByText('assistant-7')).not.toBeNull();
+    expect(screen.queryByText('assistant-5')).toBeNull();
 
     act(() => vi.advanceTimersByTime(20));
     expect(screen.queryByText('assistant-5')).not.toBeNull();
-    expect(screen.queryByText('assistant-6')).toBeNull();
+    expect(screen.queryByText('assistant-3')).toBeNull();
   });
 
   it('reports completion once after the final batch', () => {

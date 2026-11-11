@@ -288,7 +288,10 @@ export default function BaseChat({
     // Only force scroll on the very first render
     if (initialRenderRef.current && messages.length > 0) {
       initialRenderRef.current = false;
-      if (scrollRef.current?.scrollToBottom) {
+      // TB-Software: Nur ans Ende springen, wenn der Nutzer noch unten (am neuesten Eintrag) ist.
+      // Da jetzt die neuesten Eintraege zuerst geladen werden und der Rest im Hintergrund nach oben
+      // nachwaechst, darf das Lade-Ende niemanden nach unten reissen, der schon hochgescrollt hat.
+      if (scrollRef.current?.isFollowing && scrollRef.current?.scrollToBottom) {
         scrollRef.current.scrollToBottom();
       }
     } else if (scrollRef.current?.isFollowing) {

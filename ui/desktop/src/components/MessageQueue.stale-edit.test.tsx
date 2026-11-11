@@ -41,7 +41,7 @@ describe('MessageQueue edit via input field', () => {
     const onPullToInput = vi.fn();
     renderQueue(onPullToInput);
 
-    fireEvent.click(screen.getByTitle('Zum Bearbeiten zurueck ins Eingabefeld holen'));
+    fireEvent.click(screen.getByTitle('Zum Bearbeiten zurück ins Eingabefeld holen'));
 
     expect(onPullToInput).toHaveBeenCalledWith('queued-message');
   });

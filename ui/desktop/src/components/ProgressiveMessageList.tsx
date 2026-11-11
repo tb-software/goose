@@ -206,15 +206,70 @@ interface ProgressiveMessageListProps {
   ) => Promise<boolean>;
 }
 
+// TB-Software: Eine Render-Einheit des Chats, in Nachrichten-Reihenfolge. Wird EINMAL ueber ALLE
+// Nachrichten berechnet (nicht pro Lade-Batch), damit das Gruppieren nicht quadratisch wird und
+// sich beim Nachladen nicht mehr umgruppiert (kein Springen). Fenster-/Reihenfolge-Logik arbeitet
+// danach nur noch auf diesen Einheiten.
+type RenderUnit =
+  | { kind: 'progress'; anchorIndex: number; box: TbProgressBoxData }
+  | { kind: 'chain'; anchorIndex: number; indices: number[] }
+  | { kind: 'single'; index: number };
+
+// Baut den vollstaendigen Einheiten-Plan (rein, nur index-basiert). Entspricht exakt der frueheren
+// Vorrang-Logik: Fortschritts-Boxen > Werkzeug-Ketten (>=2) > Einzelnachricht.
+function buildRenderPlan(messages: Message[]): RenderUnit[] {
+  const { boxes, claimedKeys } = collectProgressBoxes(messages);
+  const progressAnchorToBox = new Map<number, TbProgressBoxData>();
+  for (const box of boxes.values()) progressAnchorToBox.set(box.anchorIndex, box);
+
+  const progressClaimedIndices = new Set<number>();
+  messages.forEach((message, index) => {
+    const ids = [
+      ...getToolRequests(message).map((r) => r.id),
+      ...getToolResponses(message).map((r) => r.id),
+    ];
+    if (ids.length > 0 && ids.every((id) => claimedKeys.has(id))) {
+      progressClaimedIndices.add(index);
+    }
+  });
+
+  const chainByIndex = new Map<number, number[]>();
+  for (const chain of identifyConsecutiveToolCalls(messages)) {
+    if (chain.length >= 2 && !chain.some((i) => progressClaimedIndices.has(i))) {
+      for (const i of chain) chainByIndex.set(i, chain);
+    }
+  }
+
+  const plan: RenderUnit[] = [];
+  const renderedChains = new Set<number>();
+  messages.forEach((_message, index) => {
+    if (progressClaimedIndices.has(index)) {
+      const box = progressAnchorToBox.get(index);
+      if (box) plan.push({ kind: 'progress', anchorIndex: index, box });
+      return;
+    }
+    const chain = chainByIndex.get(index);
+    if (chain) {
+      const anchor = chain[0];
+      if (renderedChains.has(anchor)) return;
+      renderedChains.add(anchor);
+      plan.push({ kind: 'chain', anchorIndex: anchor, indices: chain });
+      return;
+    }
+    plan.push({ kind: 'single', index });
+  });
+  return plan;
+}
+
 export default function ProgressiveMessageList({
   messages,
   sessionId,
   toolCallNotifications = emptyToolCallNotifications,
   append = emptyAppend,
   isUserMessage,
-  batchSize = 5,
-  batchDelay = 20,
-  showLoadingThreshold = 50,
+  batchSize = 12,
+  batchDelay = 16,
+  showLoadingThreshold = 40,
   renderMessage,
   isStreamingMessage = false,
   onMessageUpdate,
@@ -222,26 +277,33 @@ export default function ProgressiveMessageList({
   submitElicitationResponse,
 }: ProgressiveMessageListProps) {
   const intl = useIntl();
-  const [renderedCount, setRenderedCount] = useState(() =>
-    messages.length <= showLoadingThreshold ? messages.length : Math.min(batchSize, messages.length)
+
+  const rowContexts = useMemo(() => deriveMessageRowContexts(messages), [messages]);
+  // Einmalige, nachrichtenweite Gruppierung (siehe buildRenderPlan). Memoisiert auf messages.
+  const plan = useMemo(() => buildRenderPlan(messages), [messages]);
+  const totalUnits = plan.length;
+
+  // TB-Software: Progressiv vom ENDE her laden (neueste Eintraege zuerst sichtbar), aeltere wachsen
+  // im Hintergrund nach OBEN. renderedUnits zaehlt die bereits sichtbaren Einheiten vom Ende.
+  const [renderedUnits, setRenderedUnits] = useState(() =>
+    messages.length <= showLoadingThreshold ? totalUnits : Math.min(batchSize, totalUnits)
   );
   const completedMessageKeyRef = useRef<string | null>(null);
-  const isLoading = renderedCount < messages.length;
+  const isLoading = renderedUnits < totalUnits;
 
   useEffect(() => {
     if (messages.length <= showLoadingThreshold) {
-      setRenderedCount(messages.length);
+      setRenderedUnits(totalUnits);
       return;
     }
-
-    if (!isLoading) return;
+    if (renderedUnits >= totalUnits) return;
 
     const timeout = window.setTimeout(() => {
-      setRenderedCount((current) => Math.min(current + batchSize, messages.length));
+      setRenderedUnits((current) => Math.min(current + batchSize, totalUnits));
     }, batchDelay);
 
     return () => window.clearTimeout(timeout);
-  }, [batchDelay, batchSize, isLoading, messages.length, renderedCount, showLoadingThreshold]);
+  }, [batchDelay, batchSize, renderedUnits, totalUnits, messages.length, showLoadingThreshold]);
 
   useEffect(() => {
     if (isLoading) return;
@@ -265,16 +327,15 @@ export default function ProgressiveMessageList({
       const isSearchShortcut = (isMac ? event.metaKey : event.ctrlKey) && event.key === 'f';
 
       if (isSearchShortcut) {
-        setRenderedCount(messages.length);
+        setRenderedUnits(totalUnits);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isLoading, messages.length]);
+  }, [isLoading, totalUnits]);
 
-  const rowContexts = useMemo(() => deriveMessageRowContexts(messages), [messages]);
-  const messagesToRender = messages.slice(0, renderedCount);
+  const lastIndex = messages.length - 1;
 
   const buildRow = (message: Message, index: number): ReactNode => {
       if (!message.metadata.userVisible) return null;
@@ -302,9 +363,9 @@ export default function ProgressiveMessageList({
 
       // TB-Software: „Nochmals" nur an der letzten Antwort - stellt die vorausgehende User-Frage erneut.
       let regenerateText: string | undefined;
-      if (index === messagesToRender.length - 1 && !isUser && message.role === 'assistant') {
+      if (index === lastIndex && !isUser && message.role === 'assistant') {
         for (let i = index - 1; i >= 0; i--) {
-          const prev = messagesToRender[i];
+          const prev = messages[i];
           if (prev.role === 'user') {
             const t = getTextAndImageContent(prev).textContent.trim();
             if (t) regenerateText = t;
@@ -320,10 +381,7 @@ export default function ProgressiveMessageList({
           index={index}
           regenerateText={regenerateText}
           isStreaming={
-            isStreamingMessage &&
-            !isUser &&
-            index === messagesToRender.length - 1 &&
-            message.role === 'assistant'
+            isStreamingMessage && !isUser && index === lastIndex && message.role === 'assistant'
           }
           isUser={isUser}
           message={message}
@@ -337,82 +395,43 @@ export default function ProgressiveMessageList({
       );
   };
 
-  // TB-Software: Fortschritts-Snapshots (z. B. Transkriptions-Polls) zu EINER Box je taskId
-  // buendeln. Nachrichten, deren Tool-Calls dazu gehoeren, nicht einzeln rendern; stattdessen
-  // am Anker (juengster Poll) genau eine Box einsetzen.
-  const { boxes: progressBoxes, claimedKeys: progressClaimedKeys } =
-    collectProgressBoxes(messagesToRender);
-  const progressAnchorToBox = new Map<number, TbProgressBoxData>();
-  const progressClaimedIndices = new Set<number>();
-  for (const box of progressBoxes.values()) {
-    progressAnchorToBox.set(box.anchorIndex, box);
-  }
-  messagesToRender.forEach((message, index) => {
-    const ids = [
-      ...getToolRequests(message).map((r) => r.id),
-      ...getToolResponses(message).map((r) => r.id),
-    ];
-    if (ids.length > 0 && ids.every((id) => progressClaimedKeys.has(id))) {
-      progressClaimedIndices.add(index);
+  const renderUnit = (unit: RenderUnit): ReactNode => {
+    if (unit.kind === 'progress') {
+      return <TbProgressBox key={`tb-progress-${unit.box.key}`} box={unit.box} />;
     }
-  });
-
-  // TB-Software: aufeinanderfolgende Werkzeug-Ketten (>=2 sichtbare Schritte) zu EINER
-  // ausklappbaren Aktivitäts-Gruppe bündeln; alles andere normal rendern.
-  const chains = identifyConsecutiveToolCalls(messagesToRender);
-  const chainByIndex = new Map<number, number[]>();
-  for (const chain of chains) {
-    if (chain.length >= 2 && !chain.some((i) => progressClaimedIndices.has(i))) {
-      for (const i of chain) chainByIndex.set(i, chain);
-    }
-  }
-  const renderedChains = new Set<number>();
-  const messageRows: ReactNode[] = [];
-  messagesToRender.forEach((message, index) => {
-    if (progressClaimedIndices.has(index)) {
-      const box = progressAnchorToBox.get(index);
-      if (box) {
-        messageRows.push(<TbProgressBox key={`tb-progress-${box.key}`} box={box} />);
-      }
-      return;
-    }
-    const chain = chainByIndex.get(index);
-    if (chain) {
-      const anchor = chain[0];
-      if (renderedChains.has(anchor)) return;
-      renderedChains.add(anchor);
-      const rows = chain
-        .map((i) => buildRow(messagesToRender[i], i))
+    if (unit.kind === 'chain') {
+      const rows = unit.indices
+        .map((i) => buildRow(messages[i], i))
         .filter((r): r is ReactNode => r != null && r !== false);
       if (rows.length >= 2) {
-        messageRows.push(
+        return (
           <ActivityTree
-            key={`activity-${anchor}`}
+            key={`activity-${unit.anchorIndex}`}
             count={rows.length}
-            title={buildActivityTitle(chain, messagesToRender)}
+            title={buildActivityTitle(unit.indices, messages)}
           >
             {rows}
           </ActivityTree>
         );
-      } else {
-        rows.forEach((r) => messageRows.push(r));
       }
-      return;
+      return <Fragment key={`chain-${unit.anchorIndex}`}>{rows}</Fragment>;
     }
-    const row = buildRow(message, index);
-    if (row) messageRows.push(row);
-  });
+    return buildRow(messages[unit.index], unit.index);
+  };
+
+  // Fenster vom Ende her: die juengsten renderedUnits Einheiten, in Nachrichten-Reihenfolge.
+  const visibleUnits = plan.slice(Math.max(0, totalUnits - renderedUnits));
+  const messageRows = visibleUnits.map(renderUnit).filter((r) => r != null && r !== false);
 
   return (
     <>
-      {messageRows}
-
+      {/* Ladehinweis OBEN, da aeltere Eintraege nach oben nachwachsen (neueste sind schon da). */}
       {isLoading && (
         <div className="flex flex-col items-center justify-center py-8">
           <LoadingGoose
             message={intl.formatMessage(i18n.loadingMessages, {
-              renderedCount,
-              totalCount: messages.length,
+              renderedCount: renderedUnits,
+              totalCount: totalUnits,
             })}
           />
           <div className="text-xs text-text-secondary mt-2">
@@ -420,6 +439,8 @@ export default function ProgressiveMessageList({
           </div>
         </div>
       )}
+
+      {messageRows}
     </>
   );
 }

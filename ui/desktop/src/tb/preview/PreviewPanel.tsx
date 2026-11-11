@@ -48,6 +48,26 @@ function clampWidth(w: number): number {
   return Math.min(MAX_W, Math.max(MIN_W, w));
 }
 
+// TB-Software: Lokalen Pfad in eine file://-URL umwandeln. Wichtig fuer die HTML-Vorschau: wird die
+// Datei ueber ihre echte file://-URL geladen (nicht als srcDoc), ist die BASIS-URL der Dateiordner -
+// relative Referenzen (<img src="bild.png">, <link href="style.css">) loesen dann wie im Browser auf,
+// statt gegen die App ("broken"). Jedes Segment wird url-kodiert (Leerzeichen, Sonderzeichen).
+function fileUrlFor(p: string): string {
+  const s = (p ?? '').replace(/\\/g, '/');
+  const drive = /^([a-zA-Z]):\/(.*)$/.exec(s);
+  if (drive) {
+    const segs = drive[2].split('/').map(encodeURIComponent).join('/');
+    return `file:///${drive[1]}:/${segs}`;
+  }
+  if (s.startsWith('//')) {
+    // UNC \\server\share\... -> file://server/share/...
+    const segs = s.slice(2).split('/').map(encodeURIComponent).join('/');
+    return `file://${segs}`;
+  }
+  const segs = s.replace(/^\//, '').split('/').map(encodeURIComponent).join('/');
+  return `file:///${segs}`;
+}
+
 // TB-Software: Aehnlichkeit zweier Dateinamen (Dice-Koeffizient ueber Zeichen-Bigramme, 0..1).
 // Fuer den "Datei nicht gefunden"-Fallback: findet den naechstliegenden echten Namen im selben Ordner,
 // wenn der geklickte Pfad nur leicht abweicht (z. B. "interview" vs. "international").
@@ -301,14 +321,20 @@ const PreviewBody: React.FC<{ path: string; reloadTick: number }> = ({ path, rel
         </div>
       );
     case 'html':
-      return (
-        <iframe
-          title={baseName(path)}
-          sandbox=""
-          srcDoc={res.data}
-          className="flex-1 w-full border-0 bg-white"
-        />
-      );
+      // TB-Software: HTML ueber die echte file://-URL in einem isolierten <webview> rendern (nicht
+      // als srcDoc-iframe). Nur so ist die Basis-URL der Dateiordner, sodass relative Bilder/CSS/Fonts
+      // UND Skripte laden wie im Browser (Entscheid Timo: volle Browser-Treue). Der Gast ist isoliert:
+      // eigene Partition, kein nodeIntegration, Kontext-Isolation, webSecurity an. Key enthaelt
+      // reload/auto-Tick -> Neuladen bei Refresh/Dateiaenderung. Das srcDoc-iframe scheiterte
+      // zusaetzlich an der App-CSP (frame-src/img-src ohne file:) - der Webview-Gast ist davon nicht
+      // betroffen.
+      return React.createElement('webview', {
+        key: `tb-html:${path}:${reloadTick}:${autoTick}`,
+        src: fileUrlFor(path),
+        partition: 'persist:tbpreview',
+        webpreferences: 'nodeIntegration=no,contextIsolation=yes',
+        style: { flex: '1 1 auto', width: '100%', border: '0', background: '#fff' },
+      });
     case 'image':
       return (
         <div className="flex-1 overflow-auto p-4 flex items-center justify-center">

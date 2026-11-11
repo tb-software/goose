@@ -77,11 +77,11 @@ const i18n = defineMessages({
   },
   removeFromQueue: {
     id: 'messageQueue.removeFromQueue',
-    defaultMessage: 'Aus der Warteschlange loeschen',
+    defaultMessage: 'Aus der Warteschlange löschen',
   },
   pullToInput: {
     id: 'messageQueue.pullToInput',
-    defaultMessage: 'Zum Bearbeiten zurueck ins Eingabefeld holen',
+    defaultMessage: 'Zum Bearbeiten zurück ins Eingabefeld holen',
   },
   dragToReorder: {
     id: 'messageQueue.dragToReorder',

@@ -162,11 +162,11 @@ const i18n = defineMessages({
   },
   appendToQueue: {
     id: 'chatInput.appendToQueue',
-    defaultMessage: 'Anhaengen',
+    defaultMessage: 'Anhängen',
   },
   appendToQueueTooltip: {
     id: 'chatInput.appendToQueueTooltip',
-    defaultMessage: 'An die Warteschlange anhaengen - wird nach dem aktuellen Lauf gesendet',
+    defaultMessage: 'An die Warteschlange anhängen, wird nach dem aktuellen Lauf gesendet',
   },
   sendNow: {
     id: 'chatInput.sendNow',
