@@ -488,6 +488,45 @@ describe('acpChatSessionStore', () => {
     expect(acpChatSessionStore.getSnapshot(currentSessionId)?.pendingCancelPromptAttemptId).toBeNull();
   });
 
+  // TB-Software: Reproduziert den Nutzer-Bug "nach STOP geht beim Bearbeiten/Fortsetzen etwas nicht
+  // mehr". Trifft WAEHREND des Abbruchs noch eine (spaete) Permission-Anfrage ein, darf der Chat NICHT
+  // dauerhaft auf WaitingForUserInput haengen bleiben - sonst verwirft updateMessage den In-Place-Edit
+  // still (canEditInPlace == false). Nach dem Lauf-Ende muss der Chat wieder Idle sein.
+  it('STOP: keeps chat idle when a permission request arrives during cancellation (run-end settle)', () => {
+    const currentSessionId = sessionId('session-1');
+
+    acpChatSessionActions.startPromptAttempt(currentSessionId, 'attempt-1');
+    acpChatSessionActions.applyAcpSessionNotification(
+      activeRunNotification(currentSessionId, 'run-1')
+    );
+    acpChatSessionActions.startPromptCancellation(currentSessionId, 'attempt-1'); // STOP
+
+    // Spaete Permission-Anfrage (der Lauf wird gerade abgebrochen) darf NICHT auf WaitingForUserInput schalten.
+    acpChatSessionActions.applyPermissionRequest(permissionRequest(currentSessionId, 'tool-1'));
+    expect(acpChatSessionStore.getSnapshot(currentSessionId)?.chatState).toBe(ChatState.Idle);
+
+    // Lauf-Ende bestaetigt den Abbruch -> Chat muss Idle (bearbeitbar) sein.
+    acpChatSessionActions.applyAcpSessionNotification(activeRunNotification(currentSessionId, null));
+    const snap = acpChatSessionStore.getSnapshot(currentSessionId);
+    expect(snap?.pendingCancelPromptAttemptId).toBeNull();
+    expect(snap?.chatState).toBe(ChatState.Idle);
+  });
+
+  // TB-Software: Gleicher Bug, aber der Abbruch wird ueber den submitMessage-Pfad (clearPromptCancellation)
+  // bestaetigt und das spaete Event ist eine Elicitation.
+  it('STOP: keeps chat idle when an elicitation arrives during cancellation (clear settle)', () => {
+    const currentSessionId = sessionId('session-1');
+
+    acpChatSessionActions.startPromptAttempt(currentSessionId, 'attempt-1');
+    acpChatSessionActions.startPromptCancellation(currentSessionId, 'attempt-1'); // STOP
+
+    acpChatSessionActions.applyElicitationRequest(elicitationRequest(currentSessionId));
+    expect(acpChatSessionStore.getSnapshot(currentSessionId)?.chatState).toBe(ChatState.Idle);
+
+    acpChatSessionActions.clearPromptCancellation(currentSessionId, 'attempt-1');
+    expect(acpChatSessionStore.getSnapshot(currentSessionId)?.chatState).toBe(ChatState.Idle);
+  });
+
   // TB-Software: Endet ein laufender Lauf (run -> null), waehrend noch ein Versuch aktiv ist, dessen
   // prompt-Antwort nie kam (Desync/adoptierter Lauf), muss das Notification-Netz den Chat auf Idle
   // bringen - sonst haengt er dauerhaft auf "Streaming".

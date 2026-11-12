@@ -378,6 +378,14 @@ function createAcpChatSessionStoreInternal(): AcpChatSessionStoreInternal {
 
     entry.pendingCancelPromptAttemptId = null;
     entry.promptCancellationRestoreState = null;
+    // TB-Software: Der Abbruch ist abgeschlossen. Laeuft kein neuer Versuch, MUSS der Chat Idle sein -
+    // auch wenn waehrend des Abbruchs noch ein Zustand gesetzt wurde. Sonst bliebe der Chat gesperrt
+    // und das Fortsetzen/Bearbeiten der letzten Nachricht wuerde still verworfen.
+    if (entry.activePromptAttemptId === null && entry.chatState !== ChatState.Idle) {
+      entry.chatState = ChatState.Idle;
+      entry.progressMessage = undefined;
+      entry.pendingUserInputRequestIds.clear();
+    }
     return notify(sessionId, entry);
   };
 
@@ -547,7 +555,13 @@ function createAcpChatSessionStoreInternal(): AcpChatSessionStoreInternal {
     entry.pendingUserInputRequestIds.add(
       acpPermissionUserInputRequestId(request.request.toolCall.toolCallId)
     );
-    entry.chatState = ChatState.WaitingForUserInput;
+    // TB-Software: Laeuft gerade ein Abbruch (STOP), ist diese Permission-Anfrage ein spaet
+    // eingetroffenes Event des abzubrechenden Laufs. Dann NICHT auf WaitingForUserInput schalten -
+    // sonst bleibt der Chat nach dem Abbruch dauerhaft auf "wartet auf Eingabe" haengen und das
+    // Bearbeiten/Fortsetzen der letzten Nachricht wird still verworfen (canEditInPlace == false).
+    if (entry.pendingCancelPromptAttemptId === null) {
+      entry.chatState = ChatState.WaitingForUserInput;
+    }
     return notify(request.request.sessionId, entry);
   };
 
@@ -572,7 +586,11 @@ function createAcpChatSessionStoreInternal(): AcpChatSessionStoreInternal {
     const changes = entry.adapter.applyElicitationRequest(request);
     applyChatStateChanges(entry, changes);
     entry.pendingUserInputRequestIds.add(acpElicitationUserInputRequestId(request.id));
-    entry.chatState = ChatState.WaitingForUserInput;
+    // TB-Software: siehe applyPermissionRequest - waehrend eines laufenden Abbruchs NICHT auf
+    // WaitingForUserInput schalten, sonst haengt der Chat nach STOP.
+    if (entry.pendingCancelPromptAttemptId === null) {
+      entry.chatState = ChatState.WaitingForUserInput;
+    }
     return notify(request.sessionId, entry);
   };
 
@@ -743,6 +761,14 @@ function applyChatStateChanges(entry: StoreEntry, changes: AcpChatStateChange[])
           if (change.activeRunId === null && entry.pendingCancelPromptAttemptId !== null) {
             entry.pendingCancelPromptAttemptId = null;
             entry.promptCancellationRestoreState = null;
+            // TB-Software: Abbruch per Lauf-Ende bestaetigt. Ist kein Versuch mehr aktiv, muss der Chat
+            // Idle sein (ein spaet eingetroffenes Permission/Elicitation-Event darf nicht haengen
+            // bleiben) - sonst laesst sich die letzte Nachricht danach nicht fortsetzen/bearbeiten.
+            if (entry.activePromptAttemptId === null && entry.chatState !== ChatState.Idle) {
+              entry.chatState = ChatState.Idle;
+              entry.progressMessage = undefined;
+              entry.pendingUserInputRequestIds.clear();
+            }
           }
           // TB-Software: Lief ein Run (previousRunId gesetzt) und endet jetzt (->null), waehrend noch
           // ein Versuch aktiv ist, dessen session/prompt-Antwort aber nie kam (Desync/adoptierter
